@@ -58,7 +58,7 @@
 #'  elements is equal to the number of subjects for them prediction is made
 #'  \item PredSUB : subjects id for them prediction is made
 #' }
-#' @example example_estimation_slfda.R
+#' @example examples/example_estimation_slfda.R
 skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,Hgrid=NULL,CVThresh=0.05,PenaltyF=Qpenalty,plfGT=NULL,
                     ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
                     LPknots=c(25,25),LPbs=c("ps","ps"),LPm=c(2,2),
@@ -339,7 +339,7 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
 #' @param NewDesignMat is a design matrices for different subjects that corresponds to the observed time points
 #' @param PredDesignMat is a list of design matrices for different subjects that correspond to the prediction time points
 #' @return a list with predicted data; elements correspond to subjects
-#' @example example_prediction_slfda.R
+#' @example examples/example_prediction_slfda.R
 #' @export
 predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE,
                         nfunDATA=NULL,nfunARG=NULL,nobsTIME=NULL,identical.ARG=TRUE,
@@ -594,7 +594,7 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
 #' @param CovDep is a logical scalar indicates whether slfda model was fitted with covariates or not
 #' @param NewDesignMat is a design matrix to adjust the mean for covariate effect; only require when CovDep is true
 #' @returns a list with predicted quantile trajectories at the given time points
-#' @example example_quantile_estimation.R
+#' @example examples/example_quantile_estimation.R
 #' @export
 quantile_slfda<-function(fitOBJ,Time,QLevel,
                          CovDep=FALSE,NewDesignMat=NULL){
@@ -644,7 +644,7 @@ quantile_slfda<-function(fitOBJ,Time,QLevel,
 #' @param h is a scalar for bandwidth of the given kernel function
 #' @param penalty is a function that penalizes the shape parameter
 #' @returns a scalar that represents the value of log-likelihood
-#' @example example_local_likelihood.R
+#' @example examples/example_local_likelihood.R
 #' @export
 LocLogLikSN<-function(par,t,Tij,Y,meanX,scaleX,kernel,h,penalty=penAZs){
   a<-ncol(meanX)
@@ -694,7 +694,7 @@ LocLogLikSN<-function(par,t,Tij,Y,meanX,scaleX,kernel,h,penalty=penAZs){
 #'  \item OptimalBW : chosen optimal bandwidth value
 #'  \item fitOBJ : smooth fitted objects for population level functions at the optimal bandwidth
 #' }
-#' @example exampl_cv_slfda.R
+#' @example examples/exampl_cv_slfda.R
 #' @export
 CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpenalty,
                   ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",Thresh=0.05,
@@ -847,7 +847,7 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
 #'  \item U: a list of generated U process; elements correspond to subjects
 #'  \item W: a list of generated W process; elements correspond to subjects
 #' }
-#' @example example_data_generation.R
+#' @example examples/example_data_generation.R
 #' @export
 SNFData<-function(argS,TimePoint,Sbasis,Tbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF){
   #require(sn)
@@ -944,7 +944,7 @@ SNFData<-function(argS,TimePoint,Sbasis,Tbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF)
 #'  \item sFPCA.longDynCov.k : a list of estimated covariance of score function; length of mFPCA.npc
 #'  \item sigma2k : estimated variance for every k
 #' }
-#' @example example_lfda.R
+#' @example examples/example_lfda.R
 #' @export
 fpcaLFDA<-function (Y, subject.index, visit.index, obsT = NULL, funcArg = NULL,
                     numTEvalPoints = 41, newdata = NULL, fbps.knots = c(5, 10),
@@ -1110,7 +1110,7 @@ fpcaLFDA<-function (Y, subject.index, visit.index, obsT = NULL, funcArg = NULL,
 #'  \item Sbasis : basis function estimated from marginal covariance
 #'  \item TbasisOBJ : basis function for time-varying coefficients
 #' }
-#' @example example_lfda_ISpred.R
+#' @example examples/example_lfda_ISpred.R
 #' @export
 PWPRED<-function(lfdaOBJ,TimeOBJ,gridS=NULL,gTID=NULL,gridT=NULL){
   xiHAT<-lfdaOBJ$sFPCA.xiHat.bySubj
@@ -1191,7 +1191,7 @@ PWPRED<-function(lfdaOBJ,TimeOBJ,gridS=NULL,gTID=NULL,gridT=NULL){
 #'  \item Sbasis : basis function estimated from marginal covariance
 #'  \item TbasisOBJ : basis function for time-varying coefficients
 #' }
-#' @example example_lfda_OSpred.R
+#' @example examples/example_lfda_OSpred.R
 #' @export
 OutSamPWPRED<-function(lfdaOBJ,TimeOBJ,nfunDATA,nfunARG=NULL,nobsTIME,
                        identical.ARG=TRUE,gridS=NULL,gridT){

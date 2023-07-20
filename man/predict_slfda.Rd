@@ -2,7 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{predict_slfda}
 \alias{predict_slfda}
-\title{Performs prediction using the fitted slfda object for subjects no matter whether used in the model fitting or not. However, prediction can be made one type of subjects at a time.}
+\title{Predicts trajectory by the sLFDA method}
 \usage{
 predict_slfda(
   fitOBJ,

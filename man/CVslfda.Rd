@@ -2,9 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{CVslfda}
 \alias{CVslfda}
-\title{Cross-Validation based on likelihood function for bandwidth selection at the
-first step of estimation proposed for population level function estimation in
-Alam and Staicu (20xx)}
+\title{Cross-validation in two-step estimation of PLF by the sLFDA}
 \usage{
 CVslfda(
   funDATA,

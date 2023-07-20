@@ -1,3 +1,5 @@
+#' Longitudinal functional data analysis using sLFDA
+#' 
 #' Analyze longitudinal functional data using skew-normal distribution for point-
 #' wise variation according to the methodlogy proposed in Alam and Staicu(20xx).
 #'
@@ -322,6 +324,8 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
 }
 
 
+#' Predicts trajectory by the sLFDA method
+#' 
 #' Performs prediction using the fitted slfda object for subjects no matter whether used in the model fitting or not. However, prediction can be made one type of subjects at a time.
 #'
 #' @param fitOBJ fitted object obtained through slfda function
@@ -586,6 +590,8 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
   }
 }
 
+#' Estimate quantile trajectory by the sLFDA method
+#' 
 #' Calculate the quantile trajectory in LFDA using the fitted object obtained by slfda proposed by Alam and Staicu (20XX)
 #'
 #' @param fitOBJ fitted object obtained through slfda function
@@ -630,6 +636,8 @@ quantile_slfda<-function(fitOBJ,Time,QLevel,
 }
 
 
+#' Skew-normal log-likelihood calculation
+#' 
 #' Calculate the penalized local skew-normal log-likelihood function where both
 #' mean and scale can be approximated by polynomials. This function needs to
 #' apply for every functional grid separately when using in slfda.
@@ -665,6 +673,8 @@ LocLogLikSN<-function(par,t,Tij,Y,meanX,scaleX,kernel,h,penalty=penAZs){
 
 
 
+#' Cross-validation in two-step estimation of PLF by the sLFDA
+#' 
 #' Cross-Validation based on likelihood function for bandwidth selection at the
 #' first step of estimation proposed for population level function estimation in
 #' Alam and Staicu (20xx)
@@ -828,6 +838,8 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
 
 
 
+#' Longitudinal function data generation with skew-normal marginal
+#' 
 #' Generates longitudinal functional data for n subjects following model introduced in Alam and Staicu (20xx) taking G_alpha to be a Skew-Normal distribution
 #'
 #' @param argS is a numeric vector contains values of functional argument where the function will be sampled at a given time
@@ -900,6 +912,8 @@ SNFData<-function(argS,TimePoint,Sbasis,Tbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF)
 }
 
 
+#' Longitudinal functional data analysis using FPCA
+#' 
 #' Implements longitudinal functional data analysis (Park and Staicu, 2015). It decomposes longitudinally-observed functional observations in two steps. It first applies FPCA on a properly defined marginal covariance function and obtain estimated scores (mFPCA step). Then it further models the underlying process dynamics by applying another FPCA on a covariance of the estimated scores obtained in the mFPCA step. The function also allows to use a random effects model to study the underlying process dynamics instead of a KL expansion model in the second step. Scores in mFPCA step are estimated using numerical integration. Scores in sFPCA step are estimated under a mixed model framework.
 #'
 #' @param Y	a matrix of which each row corresponds to one curve observed on a regular and dense grid (dimension of N by m; N = total number of observed functions; m = number of grid points)
@@ -1094,6 +1108,8 @@ fpcaLFDA<-function (Y, subject.index, visit.index, obsT = NULL, funcArg = NULL,
   return(ret)
 }
 
+#' In-sample prediction via LFDA
+#' 
 #' Perform prediction using the results from fpcaLFDA function; prediction is for subjects in the training sample
 #'
 #' @param lfdaOBJ fitted object fpcaLFDA
@@ -1172,6 +1188,8 @@ PWPRED<-function(lfdaOBJ,TimeOBJ,gridS=NULL,gTID=NULL,gridT=NULL){
        "TbasisOBJ"=PsiH)
 }
 
+#' Out-of-sample prediction via the LFDA
+#' 
 #' Perform prediction using the results from fpcaLFDA function
 #'
 #' @param lfdaOBJ fitted object fpcaLFDA
@@ -1302,6 +1320,8 @@ OutSamPWPRED<-function(lfdaOBJ,TimeOBJ,nfunDATA,nfunARG=NULL,nobsTIME,
 }
 
 
+#' Epanechnikov kernel
+#' 
 #' Epanechnikov Kernel function with band-width 1;
 #' for a bandwidth of h, the input should be scaled by h
 #'

@@ -2,8 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{depan}
 \alias{depan}
-\title{Epanechnikov Kernel function with band-width 1;
-for a bandwidth of h, the input should be scaled by h}
+\title{Epanechnikov kernel}
 \usage{
 depan(x)
 }

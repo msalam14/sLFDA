@@ -2,7 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{quantile_slfda}
 \alias{quantile_slfda}
-\title{Calculate the quantile trajectory in LFDA using the fitted object obtained by slfda proposed by Alam and Staicu (20XX)}
+\title{Estimate quantile trajectory by the sLFDA method}
 \usage{
 quantile_slfda(fitOBJ, Time, QLevel, CovDep = FALSE, NewDesignMat = NULL)
 }

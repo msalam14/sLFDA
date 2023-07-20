@@ -2,9 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{LocLogLikSN}
 \alias{LocLogLikSN}
-\title{Calculate the penalized local skew-normal log-likelihood function where both
-mean and scale can be approximated by polynomials. This function needs to
-apply for every functional grid separately when using in slfda.}
+\title{Skew-normal log-likelihood calculation}
 \usage{
 LocLogLikSN(par, t, Tij, Y, meanX, scaleX, kernel, h, penalty = penAZs)
 }

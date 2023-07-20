@@ -2,8 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{skewedFDA}
 \alias{skewedFDA}
-\title{Analyze longitudinal functional data using skew-normal distribution for point-
-wise variation according to the methodlogy proposed in Alam and Staicu(20xx).}
+\title{Longitudinal functional data analysis using sLFDA}
 \usage{
 skewedFDA(
   funDATA,

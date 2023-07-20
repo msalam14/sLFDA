@@ -2,7 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{OutSamPWPRED}
 \alias{OutSamPWPRED}
-\title{Perform prediction using the results from fpcaLFDA function}
+\title{Out-of-sample prediction via the LFDA}
 \usage{
 OutSamPWPRED(
   lfdaOBJ,

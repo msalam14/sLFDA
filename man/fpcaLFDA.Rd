@@ -2,7 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{fpcaLFDA}
 \alias{fpcaLFDA}
-\title{Implements longitudinal functional data analysis (Park and Staicu, 2015). It decomposes longitudinally-observed functional observations in two steps. It first applies FPCA on a properly defined marginal covariance function and obtain estimated scores (mFPCA step). Then it further models the underlying process dynamics by applying another FPCA on a covariance of the estimated scores obtained in the mFPCA step. The function also allows to use a random effects model to study the underlying process dynamics instead of a KL expansion model in the second step. Scores in mFPCA step are estimated using numerical integration. Scores in sFPCA step are estimated under a mixed model framework.}
+\title{Longitudinal functional data analysis using FPCA}
 \usage{
 fpcaLFDA(
   Y,

@@ -2,7 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{PWPRED}
 \alias{PWPRED}
-\title{Perform prediction using the results from fpcaLFDA function; prediction is for subjects in the training sample}
+\title{In-sample prediction via LFDA}
 \usage{
 PWPRED(lfdaOBJ, TimeOBJ, gridS = NULL, gTID = NULL, gridT = NULL)
 }

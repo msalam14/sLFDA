@@ -2,7 +2,7 @@
 % Please edit documentation in R/SkewedFDA.R
 \name{SNFData}
 \alias{SNFData}
-\title{Generates longitudinal functional data for n subjects following model introduced in Alam and Staicu (20xx) taking G_alpha to be a Skew-Normal distribution}
+\title{Longitudinal function data generation with skew-normal marginal}
 \usage{
 SNFData(argS, TimePoint, Sbasis, Tbasis, Eta, Sigma2K, Sigma2, muF, sclF, alpF)
 }

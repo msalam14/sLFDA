@@ -6,3 +6,6 @@ This R package is built for analyzing longitudinal functional data analysis acco
 
 To install the package, run the following codes
 
+```
+devtools::install_github("https://github.com/msalam14/sLFDA")
+```

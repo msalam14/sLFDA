@@ -47,6 +47,7 @@
 #'  \item PLFGT : grid points in time domain where population level functions were estimated
 #'  \item SBasis : estimated basis function obtained from marginal covariance
 #'  \item marMU : estimated mean obtained FPCA of marginal variance
+#'  \item marLambda : estimated eigenvalues for the FPCA of marginal covariance
 #'  \item TBasis : estimated basis for time-dependent coefficients
 #'  \item argTB : time points wehre TBasis were estimated
 #'  \item xiMU : estimated means for every FPCA via PACE for time-dependent coefficients
@@ -215,7 +216,9 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
   phiH<-sc_fit1$efunctions
   sc1mu<-sc_fit1$mu
   Sigma2<-sc_fit1$sigma2
+  mLambda<-sc_fit1$evalues
   rm(sc_fit1)
+  # Score estimation
   psiSC<-((matrix(bam_fit$residuals,ncol = p,byrow = FALSE)-outer(rep(1,M),sc1mu))%*%phiH)*(1/p)
   Khat<-ncol(psiSC)
   TFPCA<-lapply(seq_len(Khat), function(u){
@@ -310,6 +313,7 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
               "PLFGT" = plfGT,
               "SBasis"=phiH,
               "marMU" = sc1mu,
+              "marLambda"=mLambda,
               "TBasis"=lapply(TFPCA,function(w){w$efunctions}),
               "argTB"=sapply(TFPCA,function(w){w$argvals}),
               "xiMU" = sapply(TFPCA,function(w){w$mu}),

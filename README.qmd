@@ -11,16 +11,17 @@ This R package is built for analyzing longitudinal functional data analysis acco
 
 To install the package, run the following codes
 
-```
+```{r}
+#| eval: false
 devtools::install_github("https://github.com/msalam14/sLFDA")
 ```
+
 
 # DTI data analysis
 
 - First call the required packages
 
 ```{r}
-#| results: hide
 #| warning: false
 #| message: false
 library(sLFDA)
@@ -83,3 +84,21 @@ Tg<-seq(0,max(DTI$visit.time),5)/max(DTI$visit.time) # grid where population lev
 ```
 
 - Data preparation to fit *sLFDA* model
+
+```{r}
+Y<-split.data.frame(x = DTI$cca,f = dti_ID) # splitting the data for every subject
+Tij<-split(x=dti_OT,f=dti_ID) # splitting the time for every subject
+```
+
+- Model fitting ($sLFDA_1$)
+
+```{r}
+#| cache: true
+slfda1<-skewedFDA(funDATA=Y,funARG=ss_cca,obsTIME=Tij,ETGrid=tp,DOP=1,KernelF=depan,CV=TRUE,Hgrid=seq(0.04,0.5,0.02),CVThresh = 0.05,PenaltyF=Qpenalty,plfGT=Tg,
+                  ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
+                  LPknots=c(10,10),LPbs=c("ps","ps"),LPm=c(2,2),
+                  Cov2nbasis=c(10,10),PVE=c(0.95,0.90),
+                  Prediction=TRUE,PSid=unique(dti_ID),PredGS=NULL,PredGT=Tij)
+```
+
+

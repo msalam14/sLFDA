@@ -81,3 +81,10 @@ Tg<-seq(0,max(DTI$visit.time),5)/max(DTI$visit.time) # grid where population lev
 ```
 
 - Data preparation to fit *sLFDA* model
+
+``` r
+Y<-split.data.frame(x = DTI$cca,f = dti_ID) # splitting the data for every subject
+Tij<-split(x=dti_OT,f=dti_ID) # splitting the time for every subject
+```
+
+- Model fitting ($sLFDA_1$)

@@ -111,6 +111,7 @@ a list with following objects:
  \item PLFGT : grid points in time domain where population level functions were estimated
  \item SBasis : estimated basis function obtained from marginal covariance
  \item marMU : estimated mean obtained FPCA of marginal variance
+ \item marLambda : estimated eigenvalues for the FPCA of marginal covariance
  \item TBasis : estimated basis for time-dependent coefficients
  \item argTB : time points wehre TBasis were estimated
  \item xiMU : estimated means for every FPCA via PACE for time-dependent coefficients

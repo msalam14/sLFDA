@@ -41,10 +41,13 @@ data(DTI,package="refund") # loading DTI data
 DTI<-DTI %>%
   filter(case==1) # selection of MS patients only
 ss_cca<-1:93/93 # conversion of tract locations to be in [0,1]
-dti_OT<-DTI$visit.time/max(DTI$visit.time) # conversion time to be in [0,1]
-dtiYR<-round(DTI$visit.time/365,2)
-# Handing missing profiles by cubic splines
-# Identifying FA profiles with missing at some tract locations
+dti_OT<-DTI$visit.time/max(DTI$visit.time) # conversion of visit time to be in [0,1]
+dtiYR<-round(DTI$visit.time/365,2) # visit time in year
+```
+
+- There are few FA profiles for which, we do not have FA values for all $93$ locations. We fit a spline smoothing for those FA profiles to impute the missing values.
+
+```{r}
 misINFO<-which(is.na(DTI$cca),arr.ind = TRUE)
 misFA<-split(misINFO[,2],misINFO[,1])
 misFP<-as.numeric(names(misFA))
@@ -57,8 +60,11 @@ for(i in seq_len(length(misTRCT))){
   y_new<-spline(x=x,y=y,xout=x_new,method = "natural")$y
   DTI$cca[misFP[i],misTRCT[[i]]]<-y_new
 }
-#DTI<-DTI[-unique(which(is.na(DTI$cca),arr.ind = TRUE)[,1]),] # removal of missing trajectories
+```
 
+- Original DTI data has patients' ID starting from $1001$. We convert them to $1,2,\ldots$
+
+```{r}
 # Construction of patient ID starting from 1
 dti_ID<-NULL
 dti_ID[1]<-1
@@ -68,3 +74,12 @@ for(i in 2:nrow(DTI)){
 }
 ```
 
+- Grid selection in the time domain 
+
+```{r}
+ntp<-20 # choice of B
+tp<-round(matrix(seq(0,1,length.out = ntp),ncol=1),2) # equally spaced grid of length B
+Tg<-seq(0,max(DTI$visit.time),5)/max(DTI$visit.time) # grid where population level functions will be estimated
+```
+
+- Data preparation to fit *sLFDA* model

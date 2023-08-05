@@ -62,6 +62,7 @@
 #'  \item PredSUB : subjects id for them prediction is made
 #' }
 #' @example examples/example_estimation_slfda.R
+#' @export
 skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,Hgrid=NULL,CVThresh=0.05,PenaltyF=Qpenalty,plfGT=NULL,
                     ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
                     LPknots=c(25,25),LPbs=c("ps","ps"),LPm=c(2,2),

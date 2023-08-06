@@ -4,9 +4,10 @@ Title: What the Package Does (Title Case)
 Version: 0.1.0
 Depends: Matrix, sn, mgcv, refund, fda, fdapace
 Imports:
-    Matrix, sn, mgcv, refund, fda, fdapace
+    Matrix, sn, mgcv, refund, fda, fdapace, Rdpack
+RdMacros: Rdpack
 Author: Samsul Alam
-Maintainer: The package maintainer <yourself@somewhere.net>
+Maintainer: The package maintainer <malam3@ncsu.edu>
 Description: More about what it does (maybe more than one line)
     Use four spaces when indenting paragraphs within the Description.
 License: What license is it under?

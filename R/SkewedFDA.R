@@ -1340,3 +1340,86 @@ depan<-function(x){
   ifelse(abs(x)<=1,(3/4)*(1-x^2),0)
 }
 
+
+#' Bootstrap by subject
+#' 
+#' It selects a bootstrap sample of subjects \insertCite{park2018simple}{sLFDA}, and subsequently construct a 
+#' bootstrap sample to pass the necessary arguments for skewedFDA function.
+#' 
+#' @param funDATA is a list of functional data observed from different subjects
+#' @param funARG functional arguments where the underlying function
+#' @param obsTIME is a list of time points for subjects in the study
+#' @param ETGrid is a vector of regularly spaced time points
+#' @param DOP is a scalar represents degree of polynomial for local fitting for mean and scale function
+#' @param KernelF is a character represents the name of the standard kernel to be used local linear maximum likelihood estimation
+#' @param h the bandwidth for local MLE
+#' @param CV is a logical scalar indicates whether step 1 bandwidth will be determined by cross-validation
+#' @param Hgrid a numeric vector of bandwidth values for CV
+#' @param CVThresh is a scalar represents the minimum increment for likelihood with change in bandwidth
+#' @param PenaltyF is the penalty function for shape parameter of the skewnormal distribution
+#' @param plfGT is a vector of time points, taking Cartesian products with funARG, yields grid for predicting mean and scale functions
+#' @param ES2knots is a  numeric vector of length two represent the numbers of knots for functional and longitudinal domain required for smoothing at step 2 of the estimation
+#' @param ES2bs is a vector of two strings represent names of basis functions in S and T
+#' @param ES2m order of penalities to be used in step of PLF estimation
+#' @param ES2Esp is a string represents the name of method to be used in step 2 for determining tuning parameter
+#' @param seed a numeric value to be used as seed to generate the bootstrap sample
+#' @param CovDep is a logical scalar that represents whether mean depends on covariates or not
+#' @param DesignMat is a matrix of baseline covariate for subjects in the data
+#' @param CovDepStr is a vecotr of length equals to the number of covariates.
+#' Each element can be either 1 or 2; 1 represents coefficient depends on s only, 2 means
+#' the coefficient depends on both s and t
+#' @return It returns a list with following items
+#' \itemize{
+#'  \item EstParam : a data frame with number of columns equals to 5+number of covariates; these are the estimates obtained from bootstrap sample
+#'  \item h : the bandwidth used in first step of PLF estimation
+#'  \item seed : the seed used to generate the bootstrap sample
+#' }
+#' @example examples/example_bootstrap_slfda.R
+#' @importFrom Rdpack reprompt
+#' @references
+#'  \insertAllCited{}
+#' @export
+BootSLFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,
+                    CV=FALSE,Hgrid=NULL,CVThresh=0.05,PenaltyF=Qpenalty,
+                    plfGT=NULL,seed=NULL,CovDep=FALSE,
+                    DesignMat=NULL,CovDepStr=NULL,ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML"){
+  n<-length(obsTIME)
+  mi<-sapply(obsTIME,length)
+  subID<-rep(1:n,mi)
+  Tij<-do.call(c,obsTIME)
+  M<-length(Tij)
+  p<-length(funARG)
+  B<-length(ETGrid)
+  ## Bootstrap by subject Park (2015)
+  set.seed(seed)
+  bid<-sample(1:n,replace = TRUE)
+  bfunDATA<-lapply(bid, function(w){
+    funDATA[[w]]
+  })
+  
+  if(CovDep){
+    spltD<-split.data.frame(as.matrix(DesignMat),subID)
+    if(is.matrix(DesignMat)){
+      bmeta<-do.call(rbind,lapply(bid,function(u){spltD[[u]]}))
+    } else{
+      bmeta<-do.call(c,lapply(bid,function(u){spltD[[u]]}))
+    } 
+  } else{
+    bmeta<-DesignMat
+  }
+  
+  bobsTIME<-lapply(bid, function(w){
+    obsTIME[[w]]
+  })
+  
+  bfit<-skewedFDA(funDATA = bfunDATA,funARG=funARG,obsTIME=bobsTIME,
+                  ETGrid=ETGrid,DOP=DOP,KernelF=KernelF,h=h,CV=CV,Hgrid=Hgrid,
+                  CVThresh=CVThresh,PenaltyF=PenaltyF,plfGT=plfGT,
+                  ES2knots=ES2knots,ES2bs=ES2bs,ES2m=ES2m,ES2Esp=ES2Esp,
+                  Prediction=FALSE,
+                  CovDep=CovDep,DesignMat=bmeta,CovDepStr=CovDepStr,
+                  PredDesignMat=NULL)
+  cbind(bfit$EstParam,"h"=bfit$h,"seed"=seed)
+}
+
+

@@ -301,19 +301,83 @@ subplot(m3d,s3d) %>%
                           font=f1)))
 ```
 
-    Warning: 'layout' objects don't have these attributes: 'NA'
-    Valid attributes include:
-    '_deprecated', 'activeshape', 'annotations', 'autosize', 'autotypenumbers', 'calendar', 'clickmode', 'coloraxis', 'colorscale', 'colorway', 'computed', 'datarevision', 'dragmode', 'editrevision', 'editType', 'font', 'geo', 'grid', 'height', 'hidesources', 'hoverdistance', 'hoverlabel', 'hovermode', 'images', 'legend', 'mapbox', 'margin', 'meta', 'metasrc', 'modebar', 'newshape', 'paper_bgcolor', 'plot_bgcolor', 'polar', 'scene', 'selectdirection', 'selectionrevision', 'separators', 'shapes', 'showlegend', 'sliders', 'smith', 'spikedistance', 'template', 'ternary', 'title', 'transition', 'uirevision', 'uniformtext', 'updatemenus', 'width', 'xaxis', 'yaxis', 'barmode', 'bargap', 'mapType'
+![“Estimated mean and standard deviation
+surfaces”](DTI_RESULTS/mean_sd_surface.png)
 
-![](README_files/figure-commonmark/unnamed-chunk-17-1.png)
+- For shape function, we estimate the bootstrap simultaneous confidence
+  interval. The bootstrap by subject is implemented for pointwise
+  standard errors. Then we utilized the estimated bootstrap standard
+  errors (Park et al. 2018) to obtain a simultaneous confidence interval
+  following Degras (2017). To implement the bootstrap method, we write
+  the following function function, which is specifically for the DTI
+  data.
+
+``` r
+BootSLFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,
+                    CV=FALSE,Hgrid=NULL,CVThresh=0.05,PenaltyF=Qpenalty,
+                    plfGT=NULL,seed=NULL,CovDep=FALSE,
+                    DesignMat=NULL,CovDepStr=NULL,ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML"){
+  n<-length(obsTIME)
+  mi<-sapply(obsTIME,length)
+  subID<-rep(1:n,mi)
+  Tij<-do.call(c,obsTIME)
+  M<-length(Tij)
+  p<-length(funARG)
+  B<-length(ETGrid)
+  ## Bootstrap by subject Park (2015)
+  set.seed(seed)
+  bid<-sample(1:n,replace = TRUE)
+  bfunDATA<-lapply(bid, function(w){
+    funDATA[[w]]
+  })
+  
+  ########
+  spltD<-split.data.frame(as.matrix(DesignMat),subID)
+  if(is.matrix(DesignMat)){
+    bmeta<-do.call(rbind,lapply(bid,function(u){spltD[[u]]}))
+  } else{
+    bmeta<-do.call(c,lapply(bid,function(u){spltD[[u]]}))
+  }
+  
+  
+  bobsTIME<-lapply(bid, function(w){
+    obsTIME[[w]]
+  })
+  
+  bfit<-skewedFDA(funDATA = bfunDATA,funARG=funARG,obsTIME=bobsTIME,
+                  ETGrid=ETGrid,DOP=DOP,KernelF=KernelF,h=h,CV=CV,Hgrid=Hgrid,
+                  CVThresh=CVThresh,PenaltyF=PenaltyF,plfGT=plfGT,
+                  ES2knots=ES2knots,ES2bs=ES2bs,ES2m=ES2m,ES2Esp=ES2Esp,
+                  Prediction=FALSE,
+                  CovDep=TRUE,DesignMat=bmeta,CovDepStr=CovDepStr,
+                  PredDesignMat=NULL)
+  cbind(bfit$EstParam,"h"=bfit$h,"seed"=seed)
+}
+```
 
 <div id="refs" class="references csl-bib-body hanging-indent">
+
+<div id="ref-degras2017simultaneous" class="csl-entry">
+
+Degras, David. 2017. “Simultaneous Confidence Bands for the Mean of
+Functional Data.” *Wiley Interdisciplinary Reviews: Computational
+Statistics* 9 (3): e1397.
+
+</div>
 
 <div id="ref-greven2010longitudinal" class="csl-entry">
 
 Greven, Sonja, Ciprian Crainiceanu, Brian Caffo, and Daniel Reich. 2010.
 “Longitudinal Functional Principal Component Analysis.” *Electronic
 Journal of Statistics* 4: 1022–54.
+
+</div>
+
+<div id="ref-park2018simple" class="csl-entry">
+
+Park, So Young, Ana-Maria Staicu, Luo Xiao, and Ciprian M Crainiceanu.
+2018. “Simple Fixed-Effects Inference for Complex Functional Models.”
+*Biostatistics* 19 (2): 137–52.
 
 </div>
 

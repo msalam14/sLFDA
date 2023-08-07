@@ -470,7 +470,7 @@ SobsDAT %>%
   geom_point(aes(x=CCA,y=OFA,color="gray35"),size=0.8,na.rm = TRUE)+
   ylab("Fractional Anisotropy")+
   ylim(0.25,0.75) +
-  facet_grid(vars(ID),vars(Visit))+
+  facet_grid(vars(ID),vars(Visit),labeller = label_parsed)+
   scale_color_manual(values=c("gray35","cadetblue","#D55E02","cadetblue","#D55E02","red"),labels=c(expression(Y[i](s,t[ij])),expression(hat(Y)[i](s,t[im[i]]+ 6*" Months")),expression(hat(q)[0.05](t[im[i]]+ 6*" Months"))))+
   theme(legend.title = element_blank(),legend.position = "")+
   geom_text(aes(x=TextP,y=0.70,label=TimeM),col="antiquewhite4",size=4) +

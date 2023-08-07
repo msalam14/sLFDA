@@ -126,22 +126,10 @@ slfda1<-skewedFDA(funDATA=Y,funARG=ss_cca,obsTIME=Tij,ETGrid=tp,DOP=1,KernelF=de
                   Prediction=TRUE,PSid=unique(dti_ID),PredGS=NULL,PredGT=Tij)
 ```
 
-- Saving the fitted $sLFDA_1$ object for several post analysis
-
-``` r
-save(slfda1,file="DTI_RESULTS/slfda1.RData")
-```
-
-- Loading the fitted $sLFDA_1$ object
-
-``` r
-load(file="DTI_RESULTS/slfda1.RData")
-```
-
 - Figure 1 used in the manuscript
 
 ``` r
-pID<-c(22,34,91)
+pID<-c(22,34,91) # tract locations will be plotted  
 g1<-as.data.frame(DTI$cca) %>%
   mutate(ID=ms_meta$ID,
          Time=ms_meta$ObsTime) %>%
@@ -309,6 +297,189 @@ surfaces”](DTI_RESULTS/mean_sd_surface.png)
   standard errors. Then we utilized the estimated bootstrap standard
   errors (Park et al. 2018) to obtain a simultaneous confidence interval
   following Degras (2017).
+
+``` r
+bootDAT<-read.table("DTI_RESULTS/boot_alpha_dti_refund.txt",header = TRUE)
+boot_dat<-bootDAT %>%
+  select(V1:V93,V96) %>%
+  pivot_longer(V1:V93,values_to = "Alpha",names_to = "CCA",names_prefix = "V") %>%
+  mutate(CCA=as.numeric(CCA),
+         Seed=V96) %>%
+  mutate(EAlpha=rep(do.call(cbind,split(slfda1$EstParam$X3,slfda1$EstParam$Space))[1,],times=100)) %>%
+  mutate(DAlpha=Alpha-EAlpha)
+
+## Bootstrap covariance
+boot_alpha<-do.call(cbind,split(boot_dat$DAlpha,boot_dat$CCA))
+alpha_bcov<-(1/100)*(t(boot_alpha)%*%boot_alpha)
+alpha_var<-diag(alpha_bcov)
+alpha_corr<-cov2cor(alpha_bcov)
+
+## Supremum for simultaneous confidence interval
+sup_sam<-1000
+zsup_alpha<-as.numeric(quantile(sapply(1:sup_sam,function(u){
+  max(mvrnorm(n=1,mu=rep(0,length(ss_cca)),Sigma = alpha_corr))
+}),0.975))
+```
+
+``` r
+slfda1$EstParam %>%
+  set_names("Mean","LogScale","Alpha","CCA","Time") %>%
+  mutate(AlphaSD=rep(sqrt(alpha_var),each=length(Tg)),
+         ZsupAlpha=zsup_alpha) %>%
+    mutate(AlphaLB=Alpha-(ZsupAlpha*AlphaSD),
+           AlphaUB=Alpha+(ZsupAlpha*AlphaSD)) %>%
+  filter(Time==0) %>%
+  select("Time","CCA","Alpha","AlphaSD","AlphaLB","AlphaUB") %>%  
+  set_names(c("Time","CCA","FunV","SD","Lower","Upper")) %>%
+  pivot_longer(c("FunV","Lower","Upper"),names_to = "Type",values_to = "Estimate") %>%
+  mutate(LineType=as.factor(recode(Type,
+                               "FunV"=" Estimate",
+                               "Lower"="95% simultaneous confidence band",
+                               "Upper"="95% simultaneous confidence band"))) %>%
+  ggplot(aes(x=CCA,y=Estimate,group=Type)) + 
+  geom_line(aes(linetype=LineType),linewidth=1) +
+  ylab("")+
+  scale_y_continuous(position = "left")+
+  scale_linetype_manual(c("Estimate","95% simultaneous confidence band"),values = c("solid","dotdash"))+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  theme(legend.position = "top",legend.title = element_blank()) +
+  ggtitle("Estimated shape function with 95% simulataneous confidence interval.")
+```
+
+![](README_files/figure-commonmark/unnamed-chunk-19-1.png)
+
+- Prediction by the LFDA, function from *sLFDA* is used to perform the
+  analysis
+
+``` r
+lfda<-fpcaLFDA(Y = do.call(rbind,Y), subject.index = ms_meta$ID,
+                   visit.index = do.call(c,lapply(1:length(Y), function(i){1:length(Tij[[i]])})), obsT = do.call(c,Tij),
+                   funcArg = ss_cca,numTEvalPoints = 100,fbps.knots = 10, fbps.p = 3, fbps.m = 2,
+                   LongiModel.method='fpca.sc',
+                   mFPCA.pve = 0.95, mFPCA.knots = 10, mFPCA.p = 3, mFPCA.m = 2, 
+                   sFPCA.pve = 0.90, sFPCA.nbasis = 10)   
+```
+
+- We demonstrate prediction and quantile trajectory estimation
+  altogether in the context of MS patients.
+
+``` r
+sfID<-c(16,69)
+SMPredT<-as.numeric((sapply(sfID,function(w){c(Tij[[w]][-1],max(Tij[[w]]))*max(ms_meta$ObsTime)+c(0,0,0,180/365)}))/max(ms_meta$ObsTime))
+pgT<-split(SMPredT,rep(sfID,each=4))
+
+slfda1prd<-predict_slfda(fitOBJ=slfda1,PSid=sfID,PredGS=NULL,PredGT=list(pgT[[2]],pgT[[1]]),outSAMPLE=FALSE, CovDep=FALSE,DesignMat=NULL,PredDesignMat = NULL)
+  
+#save(slfda1osp,file="slfda1osp.RData")
+```
+
+- Prediction via LFDA
+
+``` r
+LPREV<-PWPRED(lfdaOBJ = lfda,TimeOBJ = do.call(c,Tij),gridT = Tij,gTID=unique(ms_meta$ID))  
+```
+
+``` r
+lfda_prd<-PWPRED(lfdaOBJ = lfda,TimeOBJ = do.call(c,Tij),gridT = list(pgT[[2]],pgT[[1]]),gTID=sfID)  
+```
+
+- Estimation of the quantile trajectory
+
+``` r
+qst<-do.call(rbind,quantile_slfda(fitOBJ=slfda1,Time = SMPredT,QLevel = c(0.25),
+               CovDep=FALSE,NewDesignMat=NULL))
+```
+
+- Figure 3 in the original manuscript
+
+``` r
+obsDAT<-data.frame(do.call(rbind,lapply(sfID, function(w){
+  cbind(w,1:length(Tij[[w]]),Tij[[w]]*max(ms_meta$ObsTime),Y[[w]])
+}))) %>%
+  set_names(c("ID","Visit","Time",paste("cc",round(ss_cca,2),sep=""))) %>%
+  mutate(Type="Observed")
+# Fitted data by slfda
+SobsDAT<-data.frame(do.call(rbind,lapply(sfID, function(w){
+  cbind(w,1:length(Tij[[w]]),Tij[[w]]*max(ms_meta$ObsTime),
+        slfda1$PredFD[[w]])
+}))) %>%
+  set_names(c("ID","Visit","Time",paste("cc",round(ss_cca,2),sep=""))) %>%
+  mutate(Type="Observed")
+
+# Fitted data by lfda
+
+SobsDAT_lfda<-data.frame(do.call(rbind,lapply(sfID, function(w){
+  cbind(w,1:length(Tij[[w]]),Tij[[w]]*max(ms_meta$ObsTime),
+        LPREV$PredFD[[w]])
+}))) %>%
+  set_names(c("ID","Visit","Time",paste("cc",round(ss_cca,2),sep=""))) %>%
+  mutate(Type="ObservedL")
+
+#######
+SMPredT<-as.numeric((sapply(sfID,function(w){c(Tij[[w]][-1],max(Tij[[w]]))*max(ms_meta$ObsTime)+c(0,0,0,180/365)}))/max(ms_meta$ObsTime))
+SMVisit<-as.numeric(sapply(sfID, function(w){c(2:nrow(Y[[w]]),nrow(Y[[w]])+1)}))
+Q05SM<-data.frame(cbind(rep(sfID,each=4),SMVisit,SMPredT*max(ms_meta$ObsTime),qst)) %>% 
+  set_names(c("ID","Visit","Time",paste("cc",round(ss_cca,2),sep=""))) %>%
+  mutate(Type="Quantile")
+
+SMPredT<-(sapply(sfID,function(w){max(Tij[[w]])*max(ms_meta$ObsTime)})+180/365)/max(ms_meta$ObsTime)
+SMVisit<-sapply(sfID, function(w){nrow(Y[[w]])+1})
+
+## Prediction by slfda
+prdDAT<-data.frame(cbind(sfID,SMVisit,SMPredT*max(ms_meta$ObsTime),rbind(slfda1prd[[1]][4,],slfda1prd[[2]][4,])))%>% 
+  set_names(c("ID","Visit","Time",paste("cc",round(ss_cca,2),sep=""))) %>%
+  mutate(Type="Predicted") 
+
+## prediction by lfda
+prdDAT_lfda<-data.frame(cbind(sfID,SMVisit,SMPredT*max(ms_meta$ObsTime),rbind(lfda_prd$PredFD[[1]][4,],lfda_prd$PredFD[[2]][4,])))%>% 
+  set_names(c("ID","Visit","Time",paste("cc",round(ss_cca,2),sep=""))) %>%
+  mutate(Type="PredictedL") 
+
+
+ObsD<-obsDAT %>%
+  pivot_longer(4:96,names_to = "CCA",values_to = "FA",names_prefix = "cc") %>%
+  mutate(CCA=as.numeric(CCA))
+
+#cbind(sapply(Tij,length),sapply(Tij,max))
+
+SobsDAT %>% 
+  add_case(SobsDAT_lfda) %>%
+  subset(Visit>1) %>%
+  add_case(prdDAT) %>%
+  add_case(prdDAT_lfda) %>%
+  add_case(Q05SM) %>%
+  pivot_longer(4:96,names_to = "CCA",values_to = "FA",names_prefix = "cc") %>%
+  mutate(CCA=as.numeric(CCA),OFA=c(ObsD$FA[ObsD$Visit>1],rep(NA,18*93))) %>%
+  mutate(TextP=46,TimeM=paste("Visit Time: ",round(Time,2)," years",sep="")) %>%
+  mutate(TimeMF=ifelse(TimeM=="Visit Time: 1.85 years"|TimeM=="Visit Time: 2.62 years","6 months prediction since the last visit",TimeM)) %>%
+  mutate(nID=ID,
+         CCA=CCA*93,
+         Qlevel=rep(1:24,each=93),
+         ID=recode(ID,
+                   "16"="paste(Subject~ID:~16)",
+                   "69"="paste(Subject~ID:~69)"),
+         LType=ifelse(Type=="Quantile","2","1"),
+         Visit=factor(recode(Visit,
+                             "2"="paste(Observed:~2^nd~Visit)",
+                             "3"="paste(Observed:~3^rd~Visit)",
+                             "4"="paste(Observed:~4^th~Visit)",
+                             "5"="paste(Predicted:~5^th~Visit)"),
+                      levels=c("paste(Observed:~2^nd~Visit)","paste(Observed:~3^rd~Visit)","paste(Observed:~4^th~Visit)","paste(Predicted:~5^th~Visit)"))) %>%
+  ggplot(aes(x=CCA,y=FA,color=Type)) +
+  geom_line(aes(linetype=LType),linewidth=0.8) +
+  geom_point(aes(x=CCA,y=OFA,color="gray35"),size=0.8,na.rm = TRUE)+
+  ylab("Fractional Anisotropy")+
+  ylim(0.25,0.75) +
+  facet_grid(vars(ID),vars(Visit))+
+  scale_color_manual(values=c("gray35","cadetblue","#D55E02","cadetblue","#D55E02","red"),labels=c(expression(Y[i](s,t[ij])),expression(hat(Y)[i](s,t[im[i]]+ 6*" Months")),expression(hat(q)[0.05](t[im[i]]+ 6*" Months"))))+
+  theme(legend.title = element_blank(),legend.position = "")+
+  geom_text(aes(x=TextP,y=0.70,label=TimeM),col="antiquewhite4",size=4) +
+  theme(strip.text.x = element_blank(),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10))
+```
+
+![](README_files/figure-commonmark/unnamed-chunk-29-1.png)
 
 <div id="refs" class="references csl-bib-body hanging-indent">
 

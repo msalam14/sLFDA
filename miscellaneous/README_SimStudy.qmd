@@ -30,5 +30,5 @@ source("utilities_estimate.R")
 We perform the simulation on HPC; particularly, parallel jobs were run on distributed memory. To do so, we use the *Rmpi* package in the script *utilities_estimate.R*. For a given sample size and skewness type, this script will save $4$ files; in total $36$ files will be stored for $9$ scenarios ($3$ sample sizes and $3$ skewness scenarios)
 :::
 
-- The *R* script named as *utilities_results.R* contains all the necessary codes to summarize simulation results stored in the $36$ files by the script *utilities_estimate.R*. 
+- The *R* script named as *utilities_results.R* contains all the necessary codes to summarize simulation results stored in the $36$ files by the script *utilities_estimate.R*. This script also generate the Tables provided in the original manuscript and supplementary material.
 

@@ -42,4 +42,6 @@ source("utilities_estimate.R")
 
 - The *R* script named as *utilities_results.R* contains all the
   necessary codes to summarize simulation results stored in the $36$
-  files by the script *utilities_estimate.R*.
+  files by the script *utilities_estimate.R*. This script also generate
+  the Tables provided in the original manuscript and supplementary
+  material.

@@ -68,3 +68,71 @@ SNFData<-function(argS,TimePoint,Sbasis,Tbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF)
        "U"=udata,
        "W"=wdata)
 }
+
+
+#' Longitudinal function data generation with skew-normal marginal using a bi-variate basis function
+#' 
+#' Generates longitudinal functional data for n subjects following misspecified model introduced in Alam and Staicu (20xx) taking G_alpha to be a Skew-Normal distribution
+#'
+#' @param argS is a numeric vector contains values of functional argument where the function will be sampled at a given time
+#' @param TimePoint is a list of length n gives times points where functional data would have been observed for n subjects
+#' @param STbasis list of length K that has bi-variate basis functions as its elements
+#' @param Sbasis list of length K where each of the components is a basis function for smooth error
+#' @param Eta is a list of length K where each of the components is a list of length L_k contains eigenvalues
+#' @param Sigma2K is a vector of K variance parameters
+#' @param Sigma2 is the variance of iid random error
+#' @return It returns a list of set of objects
+#' \itemize{
+#'  \item n: number of subjects generated
+#'  \item argS: values of $s_1, s_2,\ldots, s_p$ where the functions were observed
+#'  \item Tij: observed time points for the subjects
+#'  \item Y: a list of generated data; each element represents data for a subject
+#'  \item PWvar: a list of point-wise variance used to generate from U process
+#'  \item U: a list of generated U process; elements correspond to subjects
+#'  \item W: a list of generated W process; elements correspond to subjects
+#' }
+#' @example examples/example_data_generationBB.R
+#' @export
+SNFDataBB<-function(argS,TimePoint,STbasis,Sbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF){
+  #require(sn)
+  n<-length(TimePoint)
+  K<-length(Sbasis)
+  wdata<-lapply(X=1:n, FUN = function(i){
+    mi<-length(TimePoint[[i]])
+    Reduce(`+`,lapply(1:K, function(k){
+      Sb<-outer(rnorm(mi,mean = 0,sd = sqrt(Sigma2K[k])),Sbasis[[k]](argS))
+      STb<-rnorm(1,mean = 0,sd = sqrt(Eta[k]))*STbasis[[k]](argS,TimePoint[[i]])
+      STb+Sb
+    }))+rnorm(mi*length(argS),mean=0,sd=sqrt(Sigma2))
+  })
+  pwvar<-lapply(X=1:n, FUN = function(i){
+    mi<-length(TimePoint[[i]])
+    Reduce(`+`,lapply(1:K, function(k){
+      Sb<-outer(rep(1,mi),Sbasis[[k]](argS))
+      STb<-STbasis[[k]](argS,TimePoint[[i]])
+      (Eta[k]*(STb^2))+(Sigma2K[k]*(Sb^2))
+    }))+Sigma2*outer(rep(1,mi),rep(1,length(argS)))
+  })
+  udata<-lapply(1:n, function(i){
+    mi<-length(TimePoint[[i]])
+    tud<-pnorm(wdata[[i]],mean = 0,sd = sqrt(pwvar[[i]]))
+    tud[which(tud<0.001,arr.ind = TRUE)]<-0.001
+    tud[which(tud>0.999,arr.ind = TRUE)]<-0.999
+    tud
+  })
+  udat<-do.call(rbind,udata)
+  subI<-do.call(c,lapply(1:n, function(i){rep(i,length(TimePoint[[i]]))}))
+  allTP<-do.call(c,TimePoint)
+  ydata<-split.data.frame(do.call(cbind,lapply(X=1:length(argS), FUN=function(l){
+    s<-argS[l]
+    msPar<-t(sapply(allTP,function(t){c(muF(s,t),sclF(s,t))}))
+    msPar[,1]+(msPar[,2]*qsn(udat[,l],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,alpF(s)),family = "SN"))[3]),family = "SN"),solver = "RFB"))
+  })),subI)
+  list("n"= n,
+       "argS"=argS,
+       "Tij"=TimePoint,
+       "Y"=ydata,
+       "PWvar"=pwvar,
+       "U"=udata,
+       "W"=wdata)
+}

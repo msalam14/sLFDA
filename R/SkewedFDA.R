@@ -34,6 +34,10 @@
 #' Each element can be either 1 or 2; 1 represents coefficient depends on s only, 2 means
 #' the coefficient depends on both s and t
 #' @param PredDesignMat A list of design matrices for every subject for which the prediction would be made
+#' @param parCOMP a logical scalar indicates whether computation is performed parallely or not 
+#' @param n_cores number of cores to use while performing the computation in parallel
+#' @param fast_bps an indicator for using fast bivariate penalized smoother for the latent process like the LFDA. 
+#' @param par_seed a scalar used as seed in ``dorng'' when parallel computing would be used; for sequential computation, skewedFDA should preceed set.seed for reproducibility
 #' @return a list with following objects:
 #' \itemize{
 #'  \item funARG : a vector represents where the functions were observed
@@ -60,15 +64,20 @@
 #'  \item PredGT : a list of time points where prediction is made; number of
 #'  elements is equal to the number of subjects for them prediction is made
 #'  \item PredSUB : subjects id for them prediction is made
+#'  \item CompTime: a vector of 3 elements represent computational times that
+#'  sLFDA took for estimating marginal population functions, copula covariance and prediction
+#'  \item fast_bps: an indicator whether fast computation similar to fpca.lfda is used or not 
 #' }
 #' @example examples/example_estimation_slfda.R
 #' @export
-skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,Hgrid=NULL,CVThresh=0.05,PenaltyF=Qpenalty,plfGT=NULL,
+skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
+                    Hgrid=NULL,CVThresh=0.05,PenaltyF=Qpenalty,plfGT=NULL,
                     ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
                     LPknots=c(25,25),LPbs=c("ps","ps"),LPm=c(2,2),
                     Cov2nbasis=c(20,20),PVE=c(0.95,0.95),
                     Prediction=FALSE,PSid=NULL,PredGS=NULL,PredGT=NULL,
-                    CovDep=FALSE,DesignMat=NULL,CovDepStr=NULL,PredDesignMat=NULL){
+                    CovDep=FALSE,DesignMat=NULL,CovDepStr=NULL,PredDesignMat=NULL,
+                    parCOMP=FALSE,n_cores=7,fast_bps=FALSE,par_seed=100){
   if(Prediction & is.null(PredGT))
     stop("Provide timepoints for prediction")
   if(Prediction & is.null(PSid) & length(PredGT)!=length(funDATA))
@@ -79,9 +88,15 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
     stop("Set either 1 or 0 for DOP")
   if(Prediction & is.null(PSid))
     print("Prediction is done for all subjects in the data")
-#  require(mgcv)
-#  require(refund)
-#  require(sn)
+  if(parCOMP){
+    if(exists("cls"))
+      rm(cls)
+    cls<-parallel::makeCluster(n_cores)
+    registerDoParallel(cls)
+  }
+  #  require(mgcv)
+  #  require(refund)
+  #  require(sn)
   n<-length(funDATA)
   mi<-sapply(obsTIME,length)
   subID<-rep(1:n,mi)
@@ -96,21 +111,25 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
   } else{
     cds<-c(2,2,1)
   }
-
+  
   # Estimation of PLF
+  cp_time1<-proc.time()
   if(CV){
     cvOBJ<-CVslfda(funDATA = funDATA,funARG = funARG,obsTIME = obsTIME,ETGrid = ETGrid,DOP=DOP,
                    KernelF = KernelF,Hgrid = Hgrid,ES2knots = ES2knots,
                    ES2bs = ES2bs,ES2m = ES2m,ES2Esp = ES2Esp,Thresh = CVThresh,
-                   CovDep=CovDep,DesignMat=DesignMat,CovDepStr=CovDepStr)
+                   CovDep=CovDep,DesignMat=DesignMat,CovDepStr=CovDepStr,parCOMP = parCOMP,par_seed=par_seed)
     h<-cvOBJ$OptimalBW
     fitPLF<-cvOBJ$fitOBJ
+    cvTime<-c(cvOBJ$AvgTime,cvOBJ$TotalTime)
     rm(cvOBJ)
   } else{
+    h<-Hgrid
     XMat<-sapply(ETGrid,function(u){u-Tij})
     IdxM<-apply(XMat,2,function(w){which(abs(w)<=h)})
-    ## First stage estimates
-    locmleres<-lapply(X = 1:p,FUN = function(u){
+    # Function performs local mle for the chosen grid in time domain for a given 
+    # argument in a functional domain
+    loc_mleFUN<-function(u){
       vY<-as.numeric(data_mat[,u])
       t(apply(matrix(1:B),1,FUN=function(v){
         p1<-IdxM[[v]]
@@ -150,7 +169,17 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
           }
         }
       }))
-    })
+    }
+    ## First stage estimates
+    if(parCOMP){
+      clusterEvalQ(cls,{library(sn)})
+      clusterExport(cls,c("data_mat","XMat","IdxM","ETGrid","DOP","KernelF","PenaltyF",
+                          "LocLogLikSN","h","B","Tij","CovDep","DesignMat"),envir = environment())
+      locmleres<-foreach(i=1:p,.options.RNG = par_seed) %dorng% loc_mleFUN(i)
+    } else{
+      locmleres<-lapply(X = 1:p,FUN = loc_mleFUN)
+    }
+    
     E1datF<-data.frame(sapply(1:length(cds),function(j){
       as.numeric(sapply(locmleres,function(u){u[,j]}))
     }))
@@ -165,69 +194,119 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
                                              "s(Space,k=ES2knots[1],bs=ES2bs[1],m=ES2m[1])"),sep=""))
       gam(frm,data = E1datF,method=ES2Esp)
     })
+    cvTime<-c(NA,NA)
     rm(E1datF)
   }
+  
+  # computational time for copula covariance estimation
+  cp_time2<-proc.time()
+  cp_popFUN<-as.numeric(cp_time2)[3]-as.numeric(cp_time1)[3]
+  
   #Estimated Mean and Scale Function
-  pdata<-data.frame(Space=rep(funARG,each=length(plfGT)),Time=rep(plfGT,times=p))
-
-
+  if(fast_bps){
+    pdata<-data.frame(x=rep(plfGT,times=p),z=rep(funARG,each=length(plfGT)))
+  } else{
+    pdata<-data.frame(Space=rep(funARG,each=length(plfGT)),Time=rep(plfGT,times=p))
+  }
+  
   ##### Estimation LP process
   LPdat<-data.frame("Space"=rep(funARG,each=length(Tij)),
                     "Time"=rep(Tij,times=p))
-
+  
   fitPAR<-sapply(seq_len(length(fitPLF)),function(u){
     predict(fitPLF[[u]],newdata=LPdat)
   })
-
+  
   if(CovDep){
     fullDM<-cbind(1,apply(as.matrix(DesignMat),2,rep,times=p))
   } else{
     fullDM<-1
   }
-
-
+  
+  
   lpred<-do.call(cbind,split(rowSums(as.matrix(fitPAR[,1:(length(cds)-2)])*fullDM),LPdat$Space))
   spred<-do.call(cbind,split(exp(fitPAR[,(length(cds)-1)]),LPdat$Space))
   apred<-as.numeric(do.call(cbind,split(fitPAR[,length(cds)],LPdat$Space))[1,])
-
+  
   rm(fullDM)
-
+  
   # Estimation of U process
   sdata_mat<-(data_mat-lpred)/spred
   rm(data_mat); rm(lpred); rm(spred)
-  estU<-do.call(cbind,lapply(X=1:p, FUN=function(x){
-    psn(sdata_mat[,x],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,apred[x]),family="SN"))[3]),family = "SN"))
-  }))
-
+  
+  if(parCOMP){
+    if(CV){
+      clusterEvalQ(cls,{library(sn)})
+    }
+    clusterExport(cls,c("sdata_mat","apred"),envir = environment())
+    estU<-do.call(cbind,clusterApply(cl=cls,x=1:p, fun=function(x){
+      psn(sdata_mat[,x],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,apred[x]),family="SN"))[3]),family = "SN"))
+    }))
+    parallel::stopCluster(cls)
+    if(exists("cls"))
+      rm(cls)
+  } else{
+    estU<-do.call(cbind,lapply(X=1:p, FUN=function(x){
+      psn(sdata_mat[,x],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,apred[x]),family="SN"))[3]),family = "SN"))
+    }))
+  }
+  
   estU[estU<1e-3]<-1e-3
   estU[estU>(1-1e-3)]<-(1-1e-3)
-
+  
+  cp_time3<-proc.time()
+  cp_U<-as.numeric(cp_time3)[3]-as.numeric(cp_time2)[3]
   # Estimation of W process
   estW<-qnorm(estU)
-
+  cp_time4<-proc.time()
+  cp_W<-as.numeric(cp_time4)[3]-as.numeric(cp_time3)[3]
+  
+  
+  
   rm(estU)
-
+  
   # Estimation of basis function for functional argument
   # Data preparation
+  lpMT1<-proc.time()
   LPdat$W=as.numeric(estW)
-  bam_fit<-bam(W~te(Space,Time,k=LPknots,bs=LPbs,m=LPm),data=LPdat)
+  if(fast_bps){
+    bam_fit<-fbps(estW,covariates=list(x=Tij,z=funARG),knots=LPknots)
+    bam_fit$residuals<-estW-bam_fit$Yhat
+    sc_fit1<-fpca.face(Y=bam_fit$residuals,argvals = funARG,knots = Cov2nbasis[1],pve = PVE[1],var = TRUE)
+    phiH<-apply(sc_fit1$efunctions,2,function(x){x*sqrt(length(funARG))})
+    sc1mu<-sc_fit1$mu
+    Sigma2<-sc_fit1$sigma2
+    mLambda<-sc_fit1$evalues/length(funARG)
+  } else{
+    bam_fit<-bam(W~te(Space,Time,k=LPknots,bs=LPbs,m=LPm),data=LPdat)
+    sc_fit1<-fpca.sc(Y=matrix(bam_fit$residuals,ncol = p,byrow = FALSE),argvals = funARG,nbasis = Cov2nbasis[1],pve = PVE[1],var = TRUE)
+    phiH<-sc_fit1$efunctions
+    sc1mu<-sc_fit1$mu
+    Sigma2<-sc_fit1$sigma2
+    mLambda<-sc_fit1$evalues
+  }
+  lpMT2<-proc.time()
+  lpMT<-as.numeric(lpMT2)[3]-as.numeric(lpMT1)[3]
+  
   rm(LPdat)
   # Functional principal component analysis
-  sc_fit1<-fpca.sc(Y=matrix(bam_fit$residuals,ncol = p,byrow = FALSE),argvals = funARG,nbasis = Cov2nbasis[1],pve = PVE[1],var = TRUE)
-  phiH<-sc_fit1$efunctions
-  sc1mu<-sc_fit1$mu
-  Sigma2<-sc_fit1$sigma2
-  mLambda<-sc_fit1$evalues
   rm(sc_fit1)
   # Score estimation
   psiSC<-((matrix(bam_fit$residuals,ncol = p,byrow = FALSE)-outer(rep(1,M),sc1mu))%*%phiH)*(1/p)
+  sfpT1<-proc.time()
   Khat<-ncol(psiSC)
   TFPCA<-lapply(seq_len(Khat), function(u){
     ydata_k<-data.frame(subID,Tij,psiSC[,u])
     colnames(ydata_k)<-c(".id",".index",".value")
     fpca.sc(ydata = ydata_k,var = TRUE,nbasis = Cov2nbasis[2],pve=PVE[2])
   })
-
+  sfpT2<-proc.time()
+  sfpT<-as.numeric(sfpT2)[3]-as.numeric(sfpT1)[3]
+  
+  # computational time for copula covariance estimation
+  cp_time5<-proc.time()
+  cp_copCOV<-as.numeric(cp_time5)[3]-as.numeric(cp_time4)[3]
+  
   # Prediction
   PredFD<-NULL
   if(Prediction){
@@ -245,31 +324,36 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
     })
     Palp<-predict(fitPLF[[length(cds)]],newdata=data.frame(Space=PredGS))
     Psc1mu<-approx(x=funARG,y=sc1mu,xout = PredGS,rule = 2)$y
-
+    
     psiKL<-lapply(1:Khat, function(k){
       Lk<-ncol(TFPCA[[k]]$efunctions)
       lapply(1:Lk, function(l){
         approxfun(x=TFPCA[[k]]$argvals,y=TFPCA[[k]]$efunctions[,l],rule = 2)
       })
     })
-
+    
     xiMU<-lapply(1:Khat, function(k){
       approxfun(x=TFPCA[[k]]$argvals,y=TFPCA[[k]]$mu,rule = 2)
     })
-
-
-    BVmean<-matrix(predict(bam_fit,newdata=data.frame(Space=rep(PredGS,each=length(PTij)),Time=rep(PTij,times=length(PredGS)))),nrow=length(PTij),byrow=FALSE)
+    
+    if(fast_bps){
+      BVfit<-predict(bam_fit,newdata=list(x=rep(PTij,times=length(PredGS)),z=rep(PredGS,each=length(PTij))))
+      BVmean<-matrix(BVfit$fitted.values,ncol=length(PredGS),byrow=FALSE)
+    } else{
+      BVmean<-matrix(predict(bam_fit,newdata=data.frame(Space=rep(PredGS,each=length(PTij)),Time=rep(PTij,times=length(PredGS)))),nrow=length(PTij),byrow=FALSE)
+    }
+    
     UstM<-pnorm(Reduce(`+`,lapply(seq_len(Khat), function(k){
       Lk<-length(psiKL[[k]])
       Reduce(`+`,lapply(seq_len(Lk),function(l){
         outer((TFPCA[[k]]$scores[PrID,l]*psiKL[[k]][[l]](PTij)),PredPHI[,k])
       }))+outer(xiMU[[k]](PTij),PredPHI[,k])
     }))+(outer(rep(1,length(PTij)),Psc1mu))+BVmean)
-
+    
     PSInd<-rep(1:length(PSid),pmi)
     UstM[UstM<1e-3]<-1e-3
     UstM[UstM>(1-1e-3)]<-(1-1e-3)
-
+    
     if(CovDep){
       if(length(cds)==4){
         PredDesignMat<-do.call(c,PredDesignMat)
@@ -280,16 +364,16 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
     } else{
       fullDM<-1
     }
-
+    
     predPAR<-sapply(seq_len(length(fitPLF)),function(u){
       predict(fitPLF[[u]],newdata=data.frame("Space"=rep(PredGS,each=length(PTij)),
                                              "Time"=rep(PTij,times=length(PredGS))))
     })
-
+    
     Lpred<-do.call(cbind,split(rowSums(as.matrix(predPAR[,1:(length(cds)-2)])*fullDM),rep(PredGS,each=length(PTij))))
     Spred<-do.call(cbind,split(exp(predPAR[,(length(cds)-1)]),rep(PredGS,each=length(PTij))))
-
-
+    
+    
     PredFD<-split.data.frame((Lpred+(
       Spred*
         sapply(seq_len(ncol(UstM)),function(a){
@@ -298,7 +382,12 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
     )),PSInd)
     rm(UstM)
   }
-
+  
+  # computational time for prediction
+  cp_time6<-proc.time()
+  cp_predT<-as.numeric(cp_time6)[3]-as.numeric(cp_time5)[3]
+  
+  
   # Return Object
   return(list("funARG"=funARG,
               "obsTIME"=obsTIME,
@@ -308,7 +397,10 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
               }),"Space"=rep(funARG,each=length(plfGT)),"Time"=rep(plfGT,times=p)),
               "h"=h,
               "plfOBJ"=fitPLF,
-              "LPMean"=do.call(cbind,split(predict(bam_fit,newdata=pdata),pdata$Space)),
+              "LPMean"=do.call(cbind,if(fast_bps){
+                split(predict(bam_fit,newdata=pdata)$fitted.values,pdata$z)
+              } else{
+                split(predict(bam_fit,newdata=pdata),pdata$Space)}),
               "lpOBJ" = bam_fit,
               "PLFGS" = funARG,
               "PLFGT" = plfGT,
@@ -325,7 +417,9 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
               "PredFD"=PredFD,
               "PredGS" = PredGS,
               "PredGT" = PredGT,
-              "PredSUB"= PSid))
+              "PredSUB"= PSid,
+              "CompTime"=data.frame("PLF"=cp_popFUN,"AvgCVTime"=cvTime[1],"TotaCVTime"=cvTime[2],"U"=cp_U,"W"=cp_W,"CopulaCOV"=cp_copCOV,"Prediction"=cp_predT),
+              "fast_bps"=fast_bps))
 }
 
 
@@ -338,7 +432,6 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
 #' @param PredGS is a grid in S where prediction will be made prediction
 #' @param PredGT is a list of times points where prediction will be made; for in-sample prediction the length should be the length of PSid, however,
 #' for out-of-sample prediction the length must be equal to the length of the list nfunDATA
-#' @param outSAMPLE is a logical scalar indicates whether perdiction is for out-of-sample data or not
 #' @param nfunDATA a list containing funcational data for out-of-sample subjects
 #' @param nfunARG is a numeric vector contain values where nfunDATA is sampled
 #' @param nobsTIME is a list of numeric vectors contains observation time points for subjects in the nfunDATA
@@ -350,9 +443,11 @@ skewedFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,CV=FALSE,
 #' @return a list with predicted data; elements correspond to subjects
 #' @example examples/example_prediction_slfda.R
 #' @export
-predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE,
-                        nfunDATA=NULL,nfunARG=NULL,nobsTIME=NULL,identical.ARG=TRUE,
+predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,nfunDATA=NULL,
+                        nfunARG=NULL,nobsTIME=NULL,identical.ARG=TRUE,
                         CovDep=FALSE,DesignMat=NULL,NewDesignMat=NULL,PredDesignMat=NULL){
+  # indicator whether prediction is for in or out sample
+  outSAMPLE<-!is.null(nfunDATA)
   funARG<-fitOBJ$PLFGS
   phiH<-fitOBJ$SBasis
   Khat<-ncol(fitOBJ$SBasis)
@@ -363,11 +458,11 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
       approxfun(x=fitOBJ$argTB[,k],y=fitOBJ$TBasis[[k]][,l],rule = 2)
     })
   })
-
+  
   xiMU<-lapply(1:Khat, function(k){
     approxfun(x=fitOBJ$argTB[,k],y=fitOBJ$xiMU[,k],rule = 2)
   })
-
+  
   if(outSAMPLE){
     if(any(c(is.null(nfunDATA),is.null(nfunARG),is.null(nobsTIME))))
       stop("Out sample prediction requires functional data, argument and observed time points")
@@ -389,17 +484,17 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
     ##### Estimation LP process
     LPdat<-data.frame("Space"=rep(nfunARG,each=length(pTij)),
                       "Time"=rep(pTij,times=p))
-
+    
     fitPAR<-sapply(seq_len(length(fitOBJ$plfOBJ)),function(u){
       predict(fitOBJ$plfOBJ[[u]],newdata=LPdat)
     })
-
+    
     if(CovDep){
       fullDM<-cbind(1,apply(as.matrix(NewDesignMat),2,rep,times=p))
     } else{
       fullDM<-1
     }
-
+    
     lpred<-do.call(cbind,split(rowSums(as.matrix(fitPAR[,1:(ncol(fitPAR)-2)])*fullDM),LPdat$Space))
     spred<-do.call(cbind,split(exp(fitPAR[,(ncol(fitPAR)-1)]),LPdat$Space))
     if(!identical.ARG){
@@ -412,18 +507,23 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
     estU<-do.call(cbind,lapply(X=1:p, FUN=function(x){
       psn(sdata_mat[,x],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,apred[x]),family="SN"))[3]),family = "SN"))
     }))
-
+    
     estU[estU<1e-3]<-1e-3
     estU[estU>(1-1e-3)]<-(1-1e-3)
-
+    
     # Estimation of W process
     estW<-qnorm(estU)
-
+    
     rm(estU)
-
-    BVmean<-do.call(cbind,split(predict(fitOBJ$lpOBJ,newdata=LPdat),LPdat$Space))
+    
+    if(fitOBJ$fast_bps){
+      bam_dat<-data.frame(x=rep(pTij,times=p),z=rep(nfunARG,each=length(pTij)))
+      BVmean<-do.call(cbind,split(predict(fitOBJ$lpOBJ,newdata=bam_dat)$fitted.values,bam_dat$z))
+    } else{
+      BVmean<-do.call(cbind,split(predict(fitOBJ$lpOBJ,newdata=LPdat),LPdat$Space))
+    }
     dW<-estW-BVmean
-
+    
     rm(estW); rm(LPdat)
     dSW<-split.data.frame(dW,nID)
     NXi<-do.call(rbind,lapply(seq_len(length(dSW)), function(w){
@@ -475,7 +575,7 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
     } else{
       PredGS<-nfunARG
     }
-
+    
     pgt_ind<-do.call(c,lapply(seq_len(length(PredGT)),function(u){
       rep(u,length(PredGT[[u]]))
     }))
@@ -483,11 +583,11 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
       pTij<-do.call(c,PredGT)
       LPdat<-data.frame("Space"=rep(PredGS,each=length(pTij)),
                         "Time"=rep(pTij,times=p))
-
+      
       fitPAR<-sapply(seq_len(length(fitOBJ$plfOBJ)),function(u){
         predict(fitOBJ$plfOBJ[[u]],newdata=LPdat)
       })
-
+      
       if(CovDep){
         if(ncol(fitPAR)==4){
           PredDesignMat<-do.call(c,PredDesignMat)
@@ -498,10 +598,16 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
       } else{
         fullDM<-1
       }
-
+      
       lpred<-do.call(cbind,split(rowSums(as.matrix(fitPAR[,1:(ncol(fitPAR)-2)])*fullDM),LPdat$Space))
       spred<-do.call(cbind,split(exp(fitPAR[,(ncol(fitPAR)-1)]),LPdat$Space))
-      BVmean<-do.call(cbind,split(predict(fitOBJ$lpOBJ,newdata=LPdat),LPdat$Space))
+      if(fitOBJ$fast_bps){
+        bam_dat<-data.frame(x=rep(pTij,times=p),z=rep(PredGS,each=length(pTij)))
+        BVmean<-do.call(cbind,split(predict(fitOBJ$lpOBJ,newdata=bam_dat)$fitted.values,bam_dat$z))
+      } else{
+        BVmean<-do.call(cbind,split(predict(fitOBJ$lpOBJ,newdata=LPdat),LPdat$Space))
+      }
+      
       nID<-do.call(c,lapply(seq_len(length(PredGT)),function(u){
         rep(u,length(PredGT[[u]]))
       }))
@@ -515,9 +621,9 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
     UstM[UstM<1e-3]<-1e-3
     UstM[UstM>(1-1e-3)]<-(1-1e-3)
     PredFD<-split.data.frame(lpred+(spred*(
-        sapply(seq_len(ncol(UstM)),function(a){
-          qsn(UstM[,a],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,apred[a]),family="SN"))[3]),family = "SN"),solver = "RFB")
-        })
+      sapply(seq_len(ncol(UstM)),function(a){
+        qsn(UstM[,a],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,apred[a]),family="SN"))[3]),family = "SN"),solver = "RFB")
+      })
     )),nID)
     rm(UstM)
     PredFD
@@ -528,7 +634,7 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
       stop("Provide prediction time points for all subjects in the data used for model fitting")
     if(!is.null(PSid) & length(PredGT)!=length(PSid))
       stop("Provide time points for only the interested subjects")
-
+    
     if(is.null(PredGT))
       PredGT<-fitOBJ$obsTIME
     pmi<-sapply(PredGT,length)
@@ -537,7 +643,7 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
     p<-length(funARG)
     if(is.null(PSid)){
       PSid<-1:n
-      if(is.null(PredDesignMat)){
+      if(CovDep & is.null(PredDesignMat)){
         PredDesignMat<-split.data.frame(as.matrix(DesignMat),rep(PSid,pmi))
       }
     }
@@ -549,27 +655,31 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
       approx(x=funARG,y=phiH[,w],xout = PredGS,rule = 2)$y
     })
     Palp<-predict(fitOBJ$plfOBJ[[length(fitOBJ$plfOBJ)]],newdata=data.frame(Space=PredGS))
-
-    BVmean<-matrix(predict(fitOBJ$lpOBJ,newdata=data.frame(Space=rep(PredGS,each=length(PTij)),Time=rep(PTij,times=length(PredGS)))),nrow=length(PTij),byrow=FALSE)
+    
+    if(fitOBJ$fast_bps){
+      BVmean<-matrix(predict(fitOBJ$lpOBJ,newdata=data.frame(x=rep(PTij,times=length(PredGS)),z=rep(PredGS,each=length(PTij))))$fitted.values,nrow=length(PTij),byrow=FALSE)
+    } else{
+      BVmean<-matrix(predict(fitOBJ$lpOBJ,newdata=data.frame(Space=rep(PredGS,each=length(PTij)),Time=rep(PTij,times=length(PredGS)))),nrow=length(PTij),byrow=FALSE)
+    }
     UstM<-pnorm(Reduce(`+`,lapply(seq_len(Khat), function(k){
       Lk<-length(psiKL[[k]])
       Reduce(`+`,lapply(seq_len(Lk),function(l){
         outer((fitOBJ$Zeta[[k]][PrID,l]*psiKL[[k]][[l]](PTij)),PredPHI[,k])
       }))+outer(xiMU[[k]](PTij),PredPHI[,k])
     }))+(outer(rep(1,length(PTij)),sc1mu(PredGS)))+BVmean)
-
+    
     PSInd<-rep(1:length(PSid),pmi)
     UstM[UstM<1e-3]<-1e-3
     UstM[UstM>(1-1e-3)]<-(1-1e-3)
-
+    
     LPdat<-data.frame("Space"=rep(PredGS,each=length(PTij)),
                       "Time"=rep(PTij,times=p))
-
+    
     fitPAR<-sapply(seq_len(length(fitOBJ$plfOBJ)),function(u){
       predict(fitOBJ$plfOBJ[[u]],newdata=LPdat)
     })
-
-
+    
+    
     if(CovDep){
       if(ncol(fitPAR)==4){
         PredDesignMat<-do.call(c,PredDesignMat)
@@ -580,10 +690,10 @@ predict_slfda<-function(fitOBJ,PSid=NULL,PredGS=NULL,PredGT=NULL,outSAMPLE=FALSE
     } else{
       fullDM<-1
     }
-
+    
     lpred<-do.call(cbind,split(rowSums(as.matrix(fitPAR[,1:(ncol(fitPAR)-2)])*fullDM),LPdat$Space))
     spred<-do.call(cbind,split(exp(fitPAR[,(ncol(fitPAR)-1)]),LPdat$Space))
-
+    
     PredFD<-split.data.frame((lpred+(
       spred*
         sapply(seq_len(ncol(UstM)),function(a){
@@ -612,11 +722,11 @@ quantile_slfda<-function(fitOBJ,Time,QLevel,
   funARG<-fitOBJ$PLFGS
   LPdat<-data.frame("Space"=rep(funARG,each=length(Time)),
                     "Time"=rep(Time,times=length(funARG)))
-
+  
   fitPAR<-sapply(seq_len(length(fitOBJ$plfOBJ)),function(u){
     predict(fitOBJ$plfOBJ[[u]],newdata=LPdat)
   })
-
+  
   if(CovDep){
     if(ncol(fitPAR)==4){
       NewDesignMat<-do.call(c,NewDesignMat)
@@ -627,11 +737,11 @@ quantile_slfda<-function(fitOBJ,Time,QLevel,
   } else{
     fullDM<-1
   }
-
+  
   lpred<-do.call(cbind,split(rowSums(as.matrix(fitPAR[,1:(ncol(fitPAR)-2)])*fullDM),LPdat$Space))
   spred<-do.call(cbind,split(exp(fitPAR[,(ncol(fitPAR)-1)]),LPdat$Space))
   apred<-as.numeric(do.call(cbind,split(fitPAR[,ncol(fitPAR)],LPdat$Space))[1,])
-
+  
   lapply(1:length(Time), function(t){
     outer(rep(1,length(QLevel)),lpred[t,])+
       outer(rep(1,length(QLevel)),spred[t,])*sapply(
@@ -703,22 +813,34 @@ LocLogLikSN<-function(par,t,Tij,Y,meanX,scaleX,kernel,h,penalty=penAZs){
 #' @param CovDepStr is a vecotr of length equals to the number of covariates.
 #' Each element can be either 1 or 2; 1 represents coefficient depends on s only, 2 means
 #' the coefficient depends on both s and t
+#' @param parCOMP a logical scalar indicates whether computation is performed parallely or not 
+#' @param n_cores number of cores to use while performing the computation in parallel
+#' @param par_seed a scalar used as seed in ``dorng'' when parallel computing would be used; for sequential computation, skewedFDA should preceed set.seed for reproducibility
 #' @return a list with the following items:
 #' \itemize{
 #'  \item CVresults : a data frame with two columns (bandwidth and log-likelihood)
 #'  \item OptimalBW : chosen optimal bandwidth value
 #'  \item fitOBJ : smooth fitted objects for population level functions at the optimal bandwidth
+#'  \item AvgTime : Mean time (in seconds) taken to obtain PLF for a given kernel bandwidth
+#'  \item TotalTime : Total time (in seconds) taken to obtain PLF in the cross-validation
 #' }
 #' @example examples/exampl_cv_slfda.R
 #' @export
 CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpenalty,
                   ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",Thresh=0.05,
-                  CovDep=FALSE,DesignMat=NULL,CovDepStr=NULL){
+                  CovDep=FALSE,DesignMat=NULL,CovDepStr=NULL,parCOMP=FALSE,n_cores=7,par_seed=100){
   #  require(mgcv)
   #  require(refund)
   #  require(sn)
   if(!(DOP==0|DOP==1))
     stop("Set either 1 or 0 for DOP")
+  if(parCOMP & !exists("cls")){
+    cls<-parallel::makeCluster(n_cores)
+    registerDoParallel(cls)
+  } else if(parCOMP & exists("cls") & class(class)[1]!="SOCKcluster"){
+    cls<-parallel::makeCluster(n_cores)
+    registerDoParallel(cls)
+  } 
   n<-length(funDATA)
   mi<-sapply(obsTIME,length)
   subID<-rep(1:n,mi)
@@ -731,7 +853,7 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
   } else{
     cds<-c(2,2,1)
   }
-
+  
   # Estimation of PLF
   data_mat<-do.call(rbind,funDATA)
   XMat<-sapply(ETGrid,function(u){u-Tij})
@@ -741,51 +863,70 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
   RC<-1
   Lh<-NULL
   bandw<-NULL
+  CompTime<-NULL
+  # Necessary for parallel computing
+  if(parCOMP){
+    clusterEvalQ(cls,{library(sn)})
+    clusterExport(cls,c("data_mat","XMat","KernelF","Qpenalty","LocLogLikSN",
+                        "ETGrid","DOP","B","Tij","CovDep","DesignMat"),
+                  envir = environment())
+  }
+  # Function performs local mle for the chosen grid in time domain for a given 
+  # argument in a functional domain
+  loc_mleFUN<-function(u){
+    vY<-as.numeric(data_mat[,u])
+    t(apply(matrix(1:B),1,FUN=function(v){
+      p1<-IdxM[[v]]
+      Y<-vY[p1]
+      Tm<-Tij[p1]
+      if(DOP==0){
+        Wt<-(1/h)*KernelF(abs(Tm-ETGrid[v])/h)
+        if(CovDep){
+          cdim<-ifelse(is.matrix(DesignMat),ncol(DesignMat),1)
+          if(cdim==1 & !is.matrix(DesignMat)){
+            DesignMat<-matrix(DesignMat,ncol=1)
+          }
+          Xmat<-cbind(rep(1,length(p1)),DesignMat[p1,])
+        } else{
+          Xmat<-rep(1,length(p1))
+        }
+        cnp<-as.numeric(sn.mple(x=Xmat,y=Y,w=Wt,penalty = "Qpenalty",opt.method="BFGS")$cp)
+        dpp<-as.numeric(cp2dp(cnp,family = "SN"))
+        if(CovDep){
+          c(cnp[1:(cdim+1)],log(cnp[(cdim+2)]),dpp[(cdim+3)])
+        } else{
+          c(cnp[1],log(cnp[2]),dpp[3])
+        }
+      } else{
+        if(CovDep){
+          cdim<-ifelse(is.matrix(DesignMat),ncol(DesignMat),1)
+          if(cdim==1 & !is.matrix(DesignMat)){
+            DesignMat<-matrix(DesignMat,ncol=1)
+          }
+          Xmat<-cbind(rep(1,length(p1)),XMat[p1,v],DesignMat[p1,])
+          in_par<-c(mean(Y),runif(1+cdim),log(sd(Y)),runif(1),runif(1))
+          as.numeric(optim(par=in_par,fn=LocLogLikSN,t=ETGrid[v],Tij=Tm,Y=Y,meanX=Xmat,scaleX=Xmat,kernel=KernelF,h=h,penalty=PenaltyF)$par)[-c(2,cdim+4)]          
+        } else{
+          Xmat<-cbind(1,XMat[p1,v])
+          in_par<-c(mean(Y),runif(1),log(sd(Y)),runif(1),runif(1))
+          as.numeric(optim(par=in_par,fn=LocLogLikSN,t=ETGrid[v],Tij=Tm,Y=Y,meanX=Xmat,scaleX=Xmat,kernel=KernelF,h=h,penalty=PenaltyF)$par)[c(1,3,5)]          
+        }
+      }
+    }))
+  }
+  # Starting of cross-validation 
   while(i<=Nh & RC>Thresh){
+    pr_time<-proc.time()
     h<-Hgrid[i]
     bandw[i]<-h
     IdxM<-apply(XMat,2,function(w){which(abs(w)<=h)})
-    locmleres<-lapply(X=1:p,FUN=function(u){
-      vY<-as.numeric(data_mat[,u])
-      t(apply(matrix(1:B),1,FUN=function(v){
-        p1<-IdxM[[v]]
-        Y<-vY[p1]
-        Tm<-Tij[p1]
-        if(DOP==0){
-          Wt<-(1/h)*KernelF(abs(Tm-ETGrid[v])/h)
-          if(CovDep){
-            cdim<-ifelse(is.matrix(DesignMat),ncol(DesignMat),1)
-            if(cdim==1 & !is.matrix(DesignMat)){
-              DesignMat<-matrix(DesignMat,ncol=1)
-            }
-            Xmat<-cbind(rep(1,length(p1)),DesignMat[p1,])
-          } else{
-            Xmat<-rep(1,length(p1))
-          }
-          cnp<-as.numeric(sn.mple(x=Xmat,y=Y,w=Wt,penalty = "Qpenalty",opt.method="BFGS")$cp)
-          dpp<-as.numeric(cp2dp(cnp,family = "SN"))
-          if(CovDep){
-            c(cnp[1:(cdim+1)],log(cnp[(cdim+2)]),dpp[(cdim+3)])
-          } else{
-            c(cnp[1],log(cnp[2]),dpp[3])
-          }
-        } else{
-          if(CovDep){
-            cdim<-ifelse(is.matrix(DesignMat),ncol(DesignMat),1)
-            if(cdim==1 & !is.matrix(DesignMat)){
-              DesignMat<-matrix(DesignMat,ncol=1)
-            }
-            Xmat<-cbind(rep(1,length(p1)),XMat[p1,v],DesignMat[p1,])
-            in_par<-c(mean(Y),runif(1+cdim),log(sd(Y)),runif(1),runif(1))
-            as.numeric(optim(par=in_par,fn=LocLogLikSN,t=ETGrid[v],Tij=Tm,Y=Y,meanX=Xmat,scaleX=Xmat,kernel=KernelF,h=h,penalty=PenaltyF)$par)[-c(2,cdim+4)]
-          } else{
-            Xmat<-cbind(1,XMat[p1,v])
-            in_par<-c(mean(Y),runif(1),log(sd(Y)),runif(1),runif(1))
-            as.numeric(optim(par=in_par,fn=LocLogLikSN,t=ETGrid[v],Tij=Tm,Y=Y,meanX=Xmat,scaleX=Xmat,kernel=KernelF,h=h,penalty=PenaltyF)$par)[c(1,3,5)]
-          }
-        }
-      }))
-    })
+    if(parCOMP){
+      clusterExport(cls,c("h","IdxM"),envir = environment())
+      locmleres<-foreach(i=1:p, .options.RNG = par_seed) %dorng% loc_mleFUN(i)
+      clusterEvalQ(cls,{rm(h); rm(IdxM)})
+    } else{
+      locmleres<-lapply(X=1:p,FUN=loc_mleFUN)
+    }
     E1datF<-data.frame(sapply(1:length(cds),function(j){
       as.numeric(sapply(locmleres,function(u){u[,j]}))
     }))
@@ -801,32 +942,33 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
       gam(frm,data = E1datF,method=ES2Esp)
     })
     rm(E1datF)
-
+    
     ##### Estimation LP process
     LPdat<-data.frame("Space"=rep(funARG,each=length(Tij)),
                       "Time"=rep(Tij,times=p))
-
+    
     fitPAR<-sapply(seq_len(length(fitPLF)),function(u){
       predict(fitPLF[[u]],newdata=LPdat)
     })
-
+    
     if(CovDep){
       fullDM<-cbind(1,apply(as.matrix(DesignMat),2,rep,times=p))
     } else{
       fullDM<-1
     }
-
-
+    
+    
     lpred<-do.call(cbind,split(rowSums(as.matrix(fitPAR[,1:(length(cds)-2)])*fullDM),LPdat$Space))
     spred<-do.call(cbind,split(exp(fitPAR[,(length(cds)-1)]),LPdat$Space))
     apred<-as.numeric(do.call(cbind,split(fitPAR[,length(cds)],LPdat$Space))[1,])
-
+    
     rm(LPdat)
     #kapA<-((((1.028571)/h)*2)+1)*(p*B)
     Lh[i]<-sum(sapply(1:p, function(w){
       cpPAR<-t(apply(cbind(lpred[,w],spred[,w],as.numeric(dp2cp(c(0,1,apred[w]),family="SN"))[3]),1,cp2dp,family="SN"))
       dsn(data_mat[,w],xi = cpPAR[,1],omega = cpPAR[,2],alpha = cpPAR[1,3],log = TRUE)
     }))
+    CompTime[i]<-as.numeric(proc.time())[3]-as.numeric(pr_time)[3]
     if(i ==1){
       i<-i+1
       next
@@ -835,10 +977,16 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
       i<-i+1
     }
   }
+  if(parCOMP){
+    stopCluster(cls)
+    rm(cls)
+  }
   list("CVresults"=data.frame("Bandwidth"=bandw,"Likelihood"=Lh),
        "OptimalBW"=bandw[length(bandw)],
-       "fitOBJ"=fitPLF
-       )
+       "fitOBJ"=fitPLF,
+       "AvgTime"=mean(CompTime),
+       "TotalTime"=sum(CompTime)
+  )
 }
 
 
@@ -854,6 +1002,8 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
 #' @param Eta is a list of length K where each of the components is a list of length L_k contains eigenvalues
 #' @param Sigma2K is a vector of K variance parameters
 #' @param Sigma2 is the variance of iid random error
+#' @param parCOMP a logical indicates whether computation is performed parallely or not
+#' @param n_cores number of cores to use while performing the computation in parallel
 #' @return It returns a list of set of objects
 #' \itemize{
 #'  \item n: number of subjects generated
@@ -866,54 +1016,111 @@ CVslfda<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,Hgrid,PenaltyF=Qpe
 #' }
 #' @example examples/example_data_generation.R
 #' @export
-SNFData<-function(argS,TimePoint,Sbasis,Tbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF){
+SNFData<-function(argS,TimePoint,Sbasis,Tbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF,parCOMP=FALSE,n_cores=7){
   #require(sn)
+  if(parCOMP){
+    if(exists("cls"))
+      rm(cls)
+    cls<-parallel::makeCluster(n_cores)
+    clusterEvalQ(cls,{library(sn); library(fda)})
+  }
   n<-length(TimePoint)
   K<-length(Sbasis)
   Lk<-sapply(Tbasis,length)
-  wdata<-lapply(X=1:n, FUN = function(i){
-    mi<-length(TimePoint[[i]])
-    Reduce(`+`,lapply(1:K, function(k){
-      Sb<-Sbasis[[k]](argS)
-      Reduce(`+`,lapply(1:(Lk[k]), function(l){
-        zeta<-rnorm(1,mean = 0,sd = sqrt(Eta[[k]][l]))
-        Tb<-Tbasis[[k]][[l]](TimePoint[[i]])
-        zeta*outer(Tb,Sb)
-      }))+outer(rnorm(mi,mean = 0,sd = sqrt(Sigma2K[k])),Sb)
-    }))+rnorm(mi*length(argS),mean=0,sd=sqrt(Sigma2))
-  })
-  pwvar<-lapply(X=1:n, FUN = function(i){
-    mi<-length(TimePoint[[i]])
-    Reduce(`+`,lapply(1:K, function(k){
-      Sb<-Sbasis[[k]](argS)
-      Reduce(`+`,lapply(1:(Lk[k]), function(l){
-        Tb<-Tbasis[[k]][[l]](TimePoint[[i]])
-        Eta[[k]][l]*outer(Tb^2,Sb^2)
-      }))+Sigma2K[k]*sapply(Sb,function(w){rep(w^2,mi)})
-    }))+matrix(rep(Sigma2,mi*length(argS)),nrow=mi,ncol=length(argS))
-  })
-  udata<-lapply(1:n, function(i){
-    mi<-length(TimePoint[[i]])
-    tud<-pnorm(wdata[[i]],mean = 0,sd = sqrt(pwvar[[i]]))
-    tud[which(tud<0.001,arr.ind = TRUE)]<-0.001
-    tud[which(tud>0.999,arr.ind = TRUE)]<-0.999
-    tud
-  })
-  udat<-do.call(rbind,udata)
-  subI<-do.call(c,lapply(1:n, function(i){rep(i,length(TimePoint[[i]]))}))
-  allTP<-do.call(c,TimePoint)
-  ydata<-split.data.frame(do.call(cbind,lapply(X=1:length(argS), FUN=function(l){
-    s<-argS[l]
-    msPar<-t(sapply(allTP,function(t){c(muF(s,t),sclF(s,t))}))
-    msPar[,1]+(msPar[,2]*qsn(udat[,l],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,alpF(s)),family = "SN"))[3]),family = "SN"),solver = "RFB"))
-  })),subI)
-  list("n"= n,
-       "argS"=argS,
-       "Tij"=TimePoint,
-       "Y"=ydata,
-       "PWvar"=pwvar,
-       "U"=udata,
-       "W"=wdata)
+  if(parCOMP){
+    clusterExport(cls,c("n","K","Lk","TimePoint","Sbasis","argS","Eta","Tbasis","Sigma2K","Sigma2"),envir = environment())
+    wdata<-clusterApply(cl=cls,x=1:n, fun = function(i){
+      mi<-length(TimePoint[[i]])
+      Reduce(`+`,lapply(1:K, function(k){
+        Sb<-Sbasis[[k]](argS)
+        Reduce(`+`,lapply(1:(Lk[k]), function(l){
+          zeta<-rnorm(1,mean = 0,sd = sqrt(Eta[[k]][l]))
+          Tb<-Tbasis[[k]][[l]](TimePoint[[i]])
+          zeta*outer(Tb,Sb)
+        }))+outer(rnorm(mi,mean = 0,sd = sqrt(Sigma2K[k])),Sb)
+      }))+rnorm(mi*length(argS),mean=0,sd=sqrt(Sigma2))
+    })
+    pwvar<-clusterApply(cl = cls, x=1:n, fun = function(i){
+      mi<-length(TimePoint[[i]])
+      Reduce(`+`,lapply(1:K, function(k){
+        Sb<-Sbasis[[k]](argS)
+        Reduce(`+`,lapply(1:(Lk[k]), function(l){
+          Tb<-Tbasis[[k]][[l]](TimePoint[[i]])
+          Eta[[k]][l]*outer(Tb^2,Sb^2)
+        }))+Sigma2K[k]*sapply(Sb,function(w){rep(w^2,mi)})
+      }))+matrix(rep(Sigma2,mi*length(argS)),nrow=mi,ncol=length(argS))
+    })
+    udata<-lapply(1:n, function(i){
+      mi<-length(TimePoint[[i]])
+      tud<-pnorm(wdata[[i]],mean = 0,sd = sqrt(pwvar[[i]]))
+      tud[which(tud<0.001,arr.ind = TRUE)]<-0.001
+      tud[which(tud>0.999,arr.ind = TRUE)]<-0.999
+      tud
+    })
+    udat<-do.call(rbind,udata)
+    subI<-do.call(c,lapply(1:n, function(i){rep(i,length(TimePoint[[i]]))}))
+    allTP<-do.call(c,TimePoint)
+    clusterExport(cls,c("allTP","muF","sclF","alpF","udat"),envir = environment())
+    ydata<-split.data.frame(do.call(cbind,clusterApply(cl=cls,x=1:length(argS), fun=function(l){
+      s<-argS[l]
+      msPar<-t(sapply(allTP,function(t){c(muF(s,t),sclF(s,t))}))
+      msPar[,1]+(msPar[,2]*qsn(udat[,l],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,alpF(s)),family = "SN"))[3]),family = "SN"),solver = "RFB"))
+    })),subI)
+    parallel::stopCluster(cls)
+    if(exists("cls"))
+      rm(cls)
+    list("n"= n,
+         "argS"=argS,
+         "Tij"=TimePoint,
+         "Y"=ydata,
+         "PWvar"=pwvar,
+         "U"=udata,
+         "W"=wdata)
+  } else{
+    wdata<-lapply(X=1:n, FUN = function(i){
+      mi<-length(TimePoint[[i]])
+      Reduce(`+`,lapply(1:K, function(k){
+        Sb<-Sbasis[[k]](argS)
+        Reduce(`+`,lapply(1:(Lk[k]), function(l){
+          zeta<-rnorm(1,mean = 0,sd = sqrt(Eta[[k]][l]))
+          Tb<-Tbasis[[k]][[l]](TimePoint[[i]])
+          zeta*outer(Tb,Sb)
+        }))+outer(rnorm(mi,mean = 0,sd = sqrt(Sigma2K[k])),Sb)
+      }))+rnorm(mi*length(argS),mean=0,sd=sqrt(Sigma2))
+    })
+    pwvar<-lapply(X=1:n, FUN = function(i){
+      mi<-length(TimePoint[[i]])
+      Reduce(`+`,lapply(1:K, function(k){
+        Sb<-Sbasis[[k]](argS)
+        Reduce(`+`,lapply(1:(Lk[k]), function(l){
+          Tb<-Tbasis[[k]][[l]](TimePoint[[i]])
+          Eta[[k]][l]*outer(Tb^2,Sb^2)
+        }))+Sigma2K[k]*sapply(Sb,function(w){rep(w^2,mi)})
+      }))+matrix(rep(Sigma2,mi*length(argS)),nrow=mi,ncol=length(argS))
+    })
+    udata<-lapply(1:n, function(i){
+      mi<-length(TimePoint[[i]])
+      tud<-pnorm(wdata[[i]],mean = 0,sd = sqrt(pwvar[[i]]))
+      tud[which(tud<0.001,arr.ind = TRUE)]<-0.001
+      tud[which(tud>0.999,arr.ind = TRUE)]<-0.999
+      tud
+    })
+    udat<-do.call(rbind,udata)
+    subI<-do.call(c,lapply(1:n, function(i){rep(i,length(TimePoint[[i]]))}))
+    allTP<-do.call(c,TimePoint)
+    ydata<-split.data.frame(do.call(cbind,lapply(X=1:length(argS), FUN=function(l){
+      s<-argS[l]
+      msPar<-t(sapply(allTP,function(t){c(muF(s,t),sclF(s,t))}))
+      msPar[,1]+(msPar[,2]*qsn(udat[,l],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,alpF(s)),family = "SN"))[3]),family = "SN"),solver = "RFB"))
+    })),subI)
+    list("n"= n,
+         "argS"=argS,
+         "Tij"=TimePoint,
+         "Y"=ydata,
+         "PWvar"=pwvar,
+         "U"=udata,
+         "W"=wdata)
+  }
 }
 
 
@@ -1015,7 +1222,7 @@ fpcaLFDA<-function (Y, subject.index, visit.index, obsT = NULL, funcArg = NULL,
     for (k in seq_len(K.hat)) {
       xi.hat0[[k]] <-data.frame(".id"=subject.index,".index"=obsT,".value"=fit1$scores[, k]/sqrt(M))
     }
-    fit2 <- lapply(xi.hat0, function(a) fpca.sc(ydata = a, pve = sFPCA.pve,
+    fit2 <- lapply(xi.hat0, function(a) fpca.sc(ydata = a, pve = sFPCA.pve,nbasis = sFPCA.nbasis,
                                                 var = TRUE))
     sigma2k<-sapply(fit2,function(u){u$sigma2})
     xi.hat <- lapply(fit2, function(a) a$Yhat)
@@ -1052,7 +1259,7 @@ fpcaLFDA<-function (Y, subject.index, visit.index, obsT = NULL, funcArg = NULL,
   muHat <- matrix(predict(object = fit.fbps, newdata = data.frame(x = rep(ETGrid,
                                                                           M), z = rep(ss, each = length(ETGrid))))$fitted.values,
                   nrow = length(ETGrid))
-
+  
   xi.hat.bySubj <- lapply(1:n, function(i) sapply(xi.hat, function(a) a[i,
   ]))
   xi.hat.phi.hat.bySubj <- lapply(xi.hat.bySubj, function(a){
@@ -1113,6 +1320,225 @@ fpcaLFDA<-function (Y, subject.index, visit.index, obsT = NULL, funcArg = NULL,
   return(ret)
 }
 
+#' Make prediction for LFDA; it can perform both in and out sample predict
+#' 
+#' Perform prediction using the results from fpcaLFDA function
+#'
+#' @param lfdaOBJ fitted object fpcaLFDA
+#' @param gridS is a vector of functional argument where trajectories will be predicted
+#' @param gTID is the subject id for which the prediction will be made
+#' @param gridT is a list of length equals length of gTID contains time points where prediction will be made for the subjects identified in gTID
+#' @param nfunDATA a list of functional data observed for new subjects
+#' @param nfunARG argument where functions for new subjects were observed
+#' @param nobsTIME a list of time points; every element represents the observed time points for subjects in the nfunDATA
+#' @param identical.ARG a logical scalar indicates whether observed functional grid for new subjects is same as the subjects used in the training the LFDA
+#' @return a list with following items
+#' \itemize{
+#'  \item PredFD : a list with predicted function for subjects
+#'  \item Subjects : id of subjects (gTID)
+#'  \item funARG : argument where trajectories were predicted (gridS)
+#'  \item TimePoints : a list of time where prediction is (gridT)
+#'  \item Sbasis : basis function estimated from marginal covariance
+#'  \item TbasisOBJ : basis function for time-varying coefficients (out-sample only)
+#'  \item TDCoef: predicted time dependent coefficient (in-sample only)
+#' }
+#' @example examples/example_predict_lfda.R
+#' @export
+predict_lfda<-function(lfdaOBJ,gridS=NULL,gTID=NULL,gridT=NULL,nfunDATA=NULL,
+                       nfunARG=NULL,nobsTIME=NULL,identical.ARG=TRUE){
+  outSAMPLE<-!is.null(nfunDATA)
+  if(outSAMPLE){
+    if(any(c(is.null(nfunDATA),is.null(nfunARG),is.null(nobsTIME))))
+      stop("Out sample prediction requires functional data, argument and observed time points")
+    if(any(round(diff(diff(nfunARG)),6)!=0))
+      stop("Out sample functions are not observed in fine grid")
+    phiH<-lfdaOBJ$mFPCA.efunctions
+    mOBJ<-lfdaOBJ$meanFOBJ
+    argS<-lfdaOBJ$funcArg
+    nmi<-sapply(nobsTIME,length)
+    nID<-rep(1:length(nmi),nmi)
+    sc1mu<-approxfun(x=argS,y=lfdaOBJ$mcMEAN,rule = 2)
+    if(!identical.ARG){
+      phiH<-apply(phiH, 2, FUN = function(u){
+        approx(x=funARG,y=u,xout = nfunARG,rule=2)$y
+      })
+      if(is.null(nfunARG))
+        stop(print("For non-identical functional argument, provide the value of nfunARG"))
+      argS<-nfunARG
+    } else{
+      if(is.null(nfunARG))
+        nfunARG<-argS
+    }
+    
+    if(!is.null(gridS))
+      phiH<-apply(phiH, 2, FUN=function(u){
+        approx(x=argS,y=u,xout = gridS,rule = 2)$y
+      })
+    n<-length(lfdaOBJ$sFPCA.xiHat.bySubj)
+    nP<-length(nfunDATA)
+    Khat<-ncol(phiH)
+    # retrieval of psi_kl
+    PsiH<-lapply(seq_len(Khat),function(k){
+      fit_egn<-eigen(lfdaOBJ$sFPCA.longDynCov.k[[k]])
+      if(is.null(lfdaOBJ$sFPCA.npc)){
+        Lk<-which((cumsum(fit_egn$values)/sum(fit_egn$values))>0.95)[1]
+      } else{
+        Lk<-lfdaOBJ$sFPCA.npc[k]
+      }
+      list("evalues"=fit_egn$values[1:Lk]/nrow(fit_egn$vectors),
+           "efunctions"=apply(as.matrix(fit_egn$vectors[,1:Lk]),2,function(u){u*sqrt(nrow(fit_egn$vectors))}),
+           "argvals" = lfdaOBJ$visitTime,
+           "mu" = colMeans(do.call(rbind,lapply(lfdaOBJ$sFPCA.xiHat.bySubj,function(u){u[,k]}))),
+           "npc"=Lk)
+    })
+    psiKL<-lapply(1:Khat, function(k){
+      Lk<-PsiH[[k]]$npc
+      lapply(1:Lk, function(l){
+        approxfun(x=PsiH[[k]]$argvals,y=PsiH[[k]]$efunctions[,l],rule = 2)
+      })
+    })
+    
+    psiMU<-lapply(PsiH,function(u){
+      approxfun(x=u$argvals,u$mu,rule = 2)
+    })
+    
+    #############Score estimation for new subjects################
+    dSW<-lapply(seq_len(length(nfunDATA)), function(u){
+      nfunDATA[[u]]-matrix(predict(object = mOBJ,
+                                   newdata = data.frame(x = rep(nobsTIME[[u]],length(argS)),
+                                                        z = rep(argS, each = nmi[u])))$fitted.values,
+                           nrow = nmi[u])
+    })
+    
+    
+    NXi<-do.call(rbind,lapply(seq_len(length(dSW)), function(w){
+      if(length(nobsTIME[[w]])==1){
+        apply(phiH,2,FUN = function(v){
+          sum((dSW[[w]]-sc1mu(nfunARG))*v*diff(c(0,nfunARG)))
+        })
+      } else{
+        t(sapply(seq_len(length(nobsTIME[[w]])), function(j){
+          apply(phiH,2,FUN = function(v){
+            sum((dSW[[w]][j,]-sc1mu(nfunARG))*v*diff(c(0,nfunARG)))
+          })
+        }))
+      }
+    }))
+    subGK<-lapply(seq_len(length(nobsTIME)),function(i){
+      lapply(1:Khat,function(k){
+        Lk<-PsiH[[k]]$npc
+        Gk<-Reduce(`+`,lapply(1:Lk, function(l){
+          PsiH[[k]]$evalues[l]*outer(psiKL[[k]][[l]](nobsTIME[[i]]),psiKL[[k]][[l]](nobsTIME[[i]]))
+        }))
+        if(lfdaOBJ$sigma2k[k]<1e-10){
+          solve(Gk+(1e-10*diag(length(nobsTIME[[i]]))))
+        } else{
+          solve(Gk+(lfdaOBJ$sigma2k[k]*diag(length(nobsTIME[[i]]))))
+        }
+      })
+    })
+    nZETA<-lapply(seq_len(Khat),function(k){
+      knXI<-split(NXi[,k],nID)
+      Lk<-PsiH[[k]]$npc
+      do.call(rbind,lapply(seq_len(length(nobsTIME)),function(i){
+        sapply(1:Lk, function(l){
+          PsiH[[k]]$evalues[l]*sum(psiKL[[k]][[l]](nobsTIME[[i]])*(subGK[[i]][[k]]%*%matrix(knXI[[i]]-psiMU[[k]](nobsTIME[[i]]),ncol=1)))
+        })
+      }))
+    })
+    
+    PredFD<-lapply(seq_len(nP), function(i){
+      Reduce(`+`,lapply(seq_len(Khat), function(k){
+        Lk<-PsiH[[k]]$npc
+        Reduce(`+`,lapply(seq_len(Lk),FUN=function(l){
+          (nZETA[[k]][i,l])*outer(approx(x=lfdaOBJ$visitTime,y=PsiH[[k]]$efunctions[,l],xout = gridT[[i]],rule = 2)$y,phiH[,k])
+        })) + outer(psiMU[[k]](gridT[[i]]),phiH[,k])
+      })) + outer(rep(1,length(gridT[[i]])),sc1mu(nfunARG)) + matrix(predict(object = mOBJ,
+                                                                             newdata = data.frame(x = rep(gridT[[i]],length(argS)),
+                                                                                                  z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
+                                                                     nrow = length(gridT[[i]]))
+    })
+    list("PredFD"=PredFD,
+         "Subjects"=unique(nID),
+         "funARG" = nfunARG,
+         "TimePoints"=gridT,
+         "Sbasis"=phiH,
+         "TbasisOBJ"=PsiH,
+         "TDCoef"=NULL)
+  } else{
+    Sbasis<-lfdaOBJ$mFPCA.efunctions
+    mOBJ<-lfdaOBJ$meanFOBJ
+    argS<-lfdaOBJ$funcArg
+    sc1mu<-approxfun(x=argS,y=lfdaOBJ$mcMEAN,rule = 2)
+    if(!is.null(gridS))
+      Sbasis<-apply(Sbasis, 2, FUN=function(u){
+        approx(x=argS,y=u,xout = gridS,rule = 2)$y
+      })
+    if(is.null(gridS))
+      gridS<-argS
+    n<-length(lfdaOBJ$sFPCA.xiHat.bySubj)
+    K<-ncol(Sbasis)
+    
+    # Prediction
+    if(is.null(gTID)){
+      gTID<-1:n
+      # Predicting the time-dependent coefficient
+      ptdcf<-lapply(seq_len(length(gTID)), function(i){
+        if(length(gridT[[i]])==1){
+          matrix(sapply(1:K,function(k){
+            approx(x=lfdaOBJ$visitTime,y=lfdaOBJ$sFPCA.xiHat.bySubj[[gTID[i]]][,k],xout = gridT[[i]],rule = 2)$y 
+          }),nrow=1)
+        } else {
+          sapply(1:K,function(k){
+            approx(x=lfdaOBJ$visitTime,y=lfdaOBJ$sFPCA.xiHat.bySubj[[gTID[i]]][,k],xout = gridT[[i]],rule = 2)$y 
+          })
+        }
+      })
+      
+      PredFD<-lapply(seq_len(length(gTID)), function(i){
+        Reduce(`+`,lapply(seq_len(K), function(k){
+          outer(ptdcf[[i]][,k],Sbasis[,k])
+        })) + outer(rep(1,length(gridT[[i]])),sc1mu(gridS)) + matrix(predict(object = mOBJ,
+                                                                             newdata = data.frame(x = rep(gridT[[i]],length(argS)),
+                                                                                                  z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
+                                                                     nrow = length(gridT[[i]]))
+      })
+    } else{
+      # Predicting the time-dependent coefficient
+      ptdcf<-lapply(seq_len(length(gTID)), function(i){
+        if(length(gridT[[i]])==1){
+          matrix(sapply(1:K,function(k){
+            approx(x=lfdaOBJ$visitTime,y=lfdaOBJ$sFPCA.xiHat.bySubj[[gTID[i]]][,k],xout = gridT[[i]],rule = 2)$y 
+          }),nrow=1)
+        } else {
+          sapply(1:K,function(k){
+            approx(x=lfdaOBJ$visitTime,y=lfdaOBJ$sFPCA.xiHat.bySubj[[gTID[i]]][,k],xout = gridT[[i]],rule = 2)$y 
+          })
+        }
+      })
+      
+      PredFD<-lapply(seq_len(length(gTID)), function(i){
+        Reduce(`+`,lapply(seq_len(K), function(k){
+          outer(ptdcf[[i]][,k],Sbasis[,k])
+        })) + outer(rep(1,length(gridT[[i]])),sc1mu(gridS)) + matrix(predict(object = mOBJ,
+                                                                             newdata = data.frame(x = rep(gridT[[i]],length(argS)),
+                                                                                                  z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
+                                                                     nrow = length(gridT[[i]]))
+      })
+    }
+    # Return object
+    list("PredFD"=PredFD,
+         "Subjects"=gTID,
+         "funARG" = gridS,
+         "TimePoints"=gridT,
+         "Sbasis"=Sbasis,
+         "TbasisOBJ"=NULL,
+         "TDCoef"=ptdcf)
+  }
+}
+
+
+
 #' In-sample prediction via LFDA
 #' 
 #' Perform prediction using the results from fpcaLFDA function; prediction is for subjects in the training sample
@@ -1152,12 +1578,12 @@ PWPRED<-function(lfdaOBJ,TimeOBJ,gridS=NULL,gTID=NULL,gridT=NULL){
   PsiH<-lapply(as.list(1:K),FUN=function(u){
     fpca.sc(Y=XiHat[[u]],argvals = sort(unique(TimeOBJ)))
   })
-
+  
   # Mean function for time-varying coefficients
   psiMU<-lapply(PsiH,function(u){
     approxfun(x=u$argvals,u$mu,rule = 2)
   })
-
+  
   if(is.null(gTID)){
     gTID<-1:n
     PredFD<-lapply(seq_len(length(gTID)), function(i){
@@ -1167,9 +1593,9 @@ PWPRED<-function(lfdaOBJ,TimeOBJ,gridS=NULL,gTID=NULL,gridT=NULL){
           (PsiH[[k]]$scores[gTID[i],l])*outer(approx(x=sort(unique(TimeOBJ)),y=PsiH[[k]]$efunctions[,l],xout = gridT[[i]],rule = 2)$y,Sbasis[,k])
         })) + outer(psiMU[[k]](gridT[[i]]),Sbasis[,k])
       })) + outer(rep(1,length(gridT[[i]])),sc1mu(gridS)) + matrix(predict(object = mOBJ,
-                                newdata = data.frame(x = rep(gridT[[i]],length(argS)),
-                                                     z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
-                   nrow = length(gridT[[i]]))
+                                                                           newdata = data.frame(x = rep(gridT[[i]],length(argS)),
+                                                                                                z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
+                                                                   nrow = length(gridT[[i]]))
     })
   } else{
     PredFD<-lapply(seq_len(length(gTID)), function(i){
@@ -1179,9 +1605,9 @@ PWPRED<-function(lfdaOBJ,TimeOBJ,gridS=NULL,gTID=NULL,gridT=NULL){
           (PsiH[[k]]$scores[gTID[i],l])*outer(approx(x=sort(unique(TimeOBJ)),y=PsiH[[k]]$efunctions[,l],xout = gridT[[i]],rule = 2)$y,Sbasis[,k])
         })) + outer(psiMU[[k]](gridT[[i]]),Sbasis[,k])
       })) + outer(rep(1,length(gridT[[i]])),sc1mu(gridS)) +matrix(predict(object = mOBJ,
-                              newdata = data.frame(x = rep(gridT[[i]],length(argS)),
-                                                   z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
-                 nrow = length(gridT[[i]]))
+                                                                          newdata = data.frame(x = rep(gridT[[i]],length(argS)),
+                                                                                               z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
+                                                                  nrow = length(gridT[[i]]))
     })
   }
   # Return object
@@ -1236,7 +1662,7 @@ OutSamPWPRED<-function(lfdaOBJ,TimeOBJ,nfunDATA,nfunARG=NULL,nobsTIME,
     if(is.null(nfunARG))
       nfunARG<-argS
   }
-
+  
   if(!is.null(gridS))
     phiH<-apply(phiH, 2, FUN=function(u){
       approx(x=argS,y=u,xout = gridS,rule = 2)$y
@@ -1255,20 +1681,20 @@ OutSamPWPRED<-function(lfdaOBJ,TimeOBJ,nfunDATA,nfunARG=NULL,nobsTIME,
       approxfun(x=PsiH[[k]]$argvals,y=PsiH[[k]]$efunctions[,l],rule = 2)
     })
   })
-
+  
   psiMU<-lapply(PsiH,function(u){
     approxfun(x=u$argvals,u$mu,rule = 2)
   })
-
+  
   #############Score estimation for new subjects################
   dSW<-lapply(seq_len(length(nfunDATA)), function(u){
     nfunDATA[[u]]-matrix(predict(object = mOBJ,
-                                      newdata = data.frame(x = rep(nobsTIME[[u]],length(argS)),
-                                                           z = rep(argS, each = nmi[u])))$fitted.values,
+                                 newdata = data.frame(x = rep(nobsTIME[[u]],length(argS)),
+                                                      z = rep(argS, each = nmi[u])))$fitted.values,
                          nrow = nmi[u])
   })
-
-
+  
+  
   NXi<-do.call(rbind,lapply(seq_len(length(dSW)), function(w){
     if(length(nobsTIME[[w]])==1){
       apply(phiH,2,FUN = function(v){
@@ -1304,7 +1730,7 @@ OutSamPWPRED<-function(lfdaOBJ,TimeOBJ,nfunDATA,nfunARG=NULL,nobsTIME,
       })
     }))
   })
-
+  
   PredFD<-lapply(seq_len(nP), function(i){
     Reduce(`+`,lapply(seq_len(Khat), function(k){
       Lk<-PsiH[[k]]$npc
@@ -1312,9 +1738,9 @@ OutSamPWPRED<-function(lfdaOBJ,TimeOBJ,nfunDATA,nfunARG=NULL,nobsTIME,
         (nZETA[[k]][i,l])*outer(approx(x=sort(unique(TimeOBJ)),y=PsiH[[k]]$efunctions[,l],xout = gridT[[i]],rule = 2)$y,phiH[,k])
       })) + outer(psiMU[[k]](gridT[[i]]),phiH[,k])
     })) + outer(rep(1,length(gridT[[i]])),sc1mu(nfunARG)) + matrix(predict(object = mOBJ,
-                              newdata = data.frame(x = rep(gridT[[i]],length(argS)),
-                                                   z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
-                 nrow = length(gridT[[i]]))
+                                                                           newdata = data.frame(x = rep(gridT[[i]],length(argS)),
+                                                                                                z = rep(argS, each = length(gridT[[i]]))))$fitted.values,
+                                                                   nrow = length(gridT[[i]]))
   })
   list("PredFD"=PredFD,
        "Subjects"=unique(nID),
@@ -1423,3 +1849,139 @@ BootSLFDA<-function(funDATA,funARG,obsTIME,ETGrid,DOP=1,KernelF,h=0.05,
 }
 
 
+#' Longitudinal function data generation with skew-normal marginal using a bi-variate basis function
+#' 
+#' Generates longitudinal functional data for n subjects following misspecified model introduced in Alam and Staicu (20xx) taking G_alpha to be a Skew-Normal distribution
+#'
+#' @param argS is a numeric vector contains values of functional argument where the function will be sampled at a given time
+#' @param TimePoint is a list of length n gives times points where functional data would have been observed for n subjects
+#' @param STbasis list of length K that has bi-variate basis functions as its elements
+#' @param Sbasis list of length K where each of the components is a basis function for smooth error
+#' @param Eta is a list of length K where each of the components is a list of length L_k contains eigenvalues
+#' @param Sigma2K is a vector of K variance parameters
+#' @param Sigma2 is the variance of iid random error
+#' @return It returns a list of set of objects
+#' \itemize{
+#'  \item n: number of subjects generated
+#'  \item argS: values of $s_1, s_2,\ldots, s_p$ where the functions were observed
+#'  \item Tij: observed time points for the subjects
+#'  \item Y: a list of generated data; each element represents data for a subject
+#'  \item PWvar: a list of point-wise variance used to generate from U process
+#'  \item U: a list of generated U process; elements correspond to subjects
+#'  \item W: a list of generated W process; elements correspond to subjects
+#' }
+#' @example examples/example_data_generationBB.R
+#' @export
+SNFDataBB<-function(argS,TimePoint,STbasis,Sbasis,Eta,Sigma2K,Sigma2,muF,sclF,alpF){
+  #require(sn)
+  n<-length(TimePoint)
+  K<-length(Sbasis)
+  wdata<-lapply(X=1:n, FUN = function(i){
+    mi<-length(TimePoint[[i]])
+    Reduce(`+`,lapply(1:K, function(k){
+      Sb<-outer(rnorm(mi,mean = 0,sd = sqrt(Sigma2K[k])),Sbasis[[k]](argS))
+      STb<-rnorm(1,mean = 0,sd = sqrt(Eta[k]))*STbasis[[k]](argS,TimePoint[[i]])
+      STb+Sb
+    }))+rnorm(mi*length(argS),mean=0,sd=sqrt(Sigma2))
+  })
+  pwvar<-lapply(X=1:n, FUN = function(i){
+    mi<-length(TimePoint[[i]])
+    Reduce(`+`,lapply(1:K, function(k){
+      Sb<-outer(rep(1,mi),Sbasis[[k]](argS))
+      STb<-STbasis[[k]](argS,TimePoint[[i]])
+      (Eta[k]*(STb^2))+(Sigma2K[k]*(Sb^2))
+    }))+Sigma2*outer(rep(1,mi),rep(1,length(argS)))
+  })
+  udata<-lapply(1:n, function(i){
+    mi<-length(TimePoint[[i]])
+    tud<-pnorm(wdata[[i]],mean = 0,sd = sqrt(pwvar[[i]]))
+    tud[which(tud<0.001,arr.ind = TRUE)]<-0.001
+    tud[which(tud>0.999,arr.ind = TRUE)]<-0.999
+    tud
+  })
+  udat<-do.call(rbind,udata)
+  subI<-do.call(c,lapply(1:n, function(i){rep(i,length(TimePoint[[i]]))}))
+  allTP<-do.call(c,TimePoint)
+  ydata<-split.data.frame(do.call(cbind,lapply(X=1:length(argS), FUN=function(l){
+    s<-argS[l]
+    msPar<-t(sapply(allTP,function(t){c(muF(s,t),sclF(s,t))}))
+    msPar[,1]+(msPar[,2]*qsn(udat[,l],dp=cp2dp(c(0,1,as.numeric(dp2cp(c(0,1,alpF(s)),family = "SN"))[3]),family = "SN"),solver = "RFB"))
+  })),subI)
+  list("n"= n,
+       "argS"=argS,
+       "Tij"=TimePoint,
+       "Y"=ydata,
+       "PWvar"=pwvar,
+       "U"=udata,
+       "W"=wdata)
+}
+
+#' Asymmetric test using Holgersson's statistic
+#' 
+#' It calculates p-value using the Holgersson's modified test statistic to 
+#' test the asymmetry of a given data from bootstrap samples.
+#' 
+#' @param x a numeric vector of data
+#' @param boot_ss a scalar represents the bootstrap sample size
+#' @returns It returns a scalar represents the calculated p-value
+#' @examples
+#' hmma_pvalue(x=rsn(30,dp=cp2dp(c(0,1,0.05),family="SN")),boot_ss=100)
+#' 
+#' @export
+hmma_pvalue<-function(x,boot_ss=100){
+  n<-length(x)
+  theta<-mean((x-median(x))^3)/(sd(x)^3)
+  btheta<-sapply(1:boot_ss, function(i){
+    bxx<-x[sample(1:n,n,replace=TRUE)]
+    n*((mean((bxx-median(bxx))^3)/(sd(bxx)^3))-theta)^2
+  })
+  sum(as.numeric(btheta>(n*(theta^2))))/(boot_ss+1)
+}
+
+
+#' Asymmetric test for longitudinal functional data
+#' 
+#' It performs asymmetry of pointwise marginal distributions based on a given
+#' longitudinal functional data. Specifically, it uses the Holgersson's modified
+#' test statistic and calculates p-value via bootstrapping. 
+#' 
+#' @param n_breaks either the number of bins or edges of bins to be created for 
+#' the time domain
+#' @param data longitudinal functional data in matrix format; by appending the 
+#' subject wise data
+#' @param time a vector of observed time points from all subjects; the length 
+#' must matches with the number of rows in the data
+#' @param alpha desired level of significance
+#' @param boot_ss a scalar represents the bootstrap sample size
+#' @return It returns a list of objects
+#' \itemize{
+#'  \item nTest: total number of test performed
+#'  \item nBin: binwise sample size
+#'  \item nReject: number of rejections
+#'  \item percentReject: percentage of rejection
+#'  \item pValue: a matrix of p-value corresponding to all the test performed
+#'  \item Correct_Alpha: corrected significance level with Bonferroni correction
+#' }
+#' @example examples/example_lfd_asym_test.R
+#' @export
+lfd_asym_test<-function(n_breaks=10,data,time,alpha=0.05,boot_ss=100){
+  n_arg<-ncol(data)
+  if(length(n_breaks)>1){
+    binL<-cut(time,n_breaks,include.lowest = TRUE)
+  } else{
+    binL<-cut(time,breaks = n_breaks,labels = 1:n_breaks)
+  }
+  k<-length(levels(binL))*n_arg
+  walpha<-alpha/k
+  Pvalue<-sapply(1:n_arg, function(u){
+    Y<-data[,u]
+    sapply(split(Y,binL), hmma_pvalue,boot_ss=boot_ss)
+  })
+  nRej<-sum(Pvalue<walpha)
+  list("nTest"=k,
+       "nBin"=table(binL),
+       "nReject"=nRej,
+       "percentReject"=nRej/k,
+       "pValue"=Pvalue,
+       "Correct_Alpha"=walpha)
+}

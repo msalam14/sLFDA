@@ -4,29 +4,51 @@
 #' @param n sample size
 #' @param nTEST test data sample size
 #' @param base_seed a scalar using that a seed number is set for the simulation
-#' @param sig2_E variance of the purely random error
 #' @export
-sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
+sim_iter_slfda<-function(iter,n,nTEST,base_seed=100){
   if(nTEST>n)
     stop("Test data size cannot exceed the sample size")
   
   ####### True parameters settings ######
-  SFbasis<-list("sfourier1"=function(s){
-    fourier(x=s,nbasis=5,period = 1)[,2]
-  },"sfourier2"=function(s){
-    fourier(x=s,nbasis=5,period = 1)[,3]
-  },"sfourier3"=function(s){
-    fourier(x=s,nbasis=5,period = 1)[,4]
+  #SFbasis<-list("sfourier1"=function(s){
+  #  fourier(x=s,nbasis=5,period = 1)[,2]
+  #},"sfourier2"=function(s){
+  #  fourier(x=s,nbasis=5,period = 1)[,3]
+  #},"sfourier3"=function(s){
+  #  fourier(x=s,nbasis=5,period = 1)[,4]
+  #})
+  
+  
+  #TBasis<-list(list("tb11" = function(T){fourier(x=T,nbasis=3,period=1)[,2]},
+  #                  "tb12" = function(T){fourier(x=T,nbasis=3,period=1)[,3]}),
+  #             list("tb21" = function(T){fourier(x=T,nbasis=5,period=1)[,4]},
+  #                  "tb22" = function(T){fourier(x=T,nbasis=5,period=1)[,5]}),
+  #             list("tb31" = function(T){fourier(x=T,nbasis=7,period=1)[,6]},
+  #                  "tb32" = function(T){fourier(x=T,nbasis=7,period=1)[,7]})
+  #)
+  
+  # Bi-variate basis
+  STBasis<-list("stB1"=function(s,t){
+    sapply(s, function(u){
+      (sqrt(30/37)*(u*t+u^2+t^2))
+    })
+  },
+  "stB2"=function(s,t){
+    sapply(s, function(u){
+      sqrt(120)*((u*(t^2))-((u^2)*t))
+    })
   })
   
+  # Marginal basis
   
-  TBasis<-list(list("tb11" = function(T){fourier(x=T,nbasis=3,period=1)[,2]},
-                    "tb12" = function(T){fourier(x=T,nbasis=3,period=1)[,3]}),
-               list("tb21" = function(T){fourier(x=T,nbasis=5,period=1)[,4]},
-                    "tb22" = function(T){fourier(x=T,nbasis=5,period=1)[,5]}),
-               list("tb31" = function(T){fourier(x=T,nbasis=7,period=1)[,6]},
-                    "tb32" = function(T){fourier(x=T,nbasis=7,period=1)[,7]})
+  SBasis<-list("sB1"=function(s){
+    fourier(x=s,nbasis=5,period = 1)[,2]
+  },
+  "sB2"=function(s){
+    fourier(x=s,nbasis=5,period = 1)[,3]
+  }
   )
+  
   
   
   # To fixed the points on S
@@ -34,11 +56,12 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
   ss<-seq(0,1,length.out = n_s)
   
   # Eigen values, eta_{kl}
-  tdcfV<-list(c(0.6,0.4),c(0.5,0.3),c(0.25,0.20))
+  tdcfV<-c(0.80,0.60)#list(c(0.6,0.4),c(0.5,0.3),c(0.25,0.20))
   
   
   # Variance parameters
-  sig2_S<-c(0.328,0.210,0.046)
+  sig2_S<-c(0.25,0.20)#,0.10)
+  sig2_E<-0.15
   
   # PLF functions
   # True Mean function
@@ -102,9 +125,9 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
   FTij<-lapply(FTest, function(w){Tg})
   
   # Simulated Skewed FD
-  gdata<-SNFData(argS = ss,TimePoint = TijA,Sbasis = SFbasis,Tbasis = TBasis,
-                 Eta = tdcfV,Sigma2K = sig2_S,Sigma2 = sig2_E,
-                 muF = meanPF,sclF = sFUN,alpF = alFUN)
+  gdata<-SNFDataBB(argS = ss,TimePoint = TijA,STbasis = STBasis,Sbasis = SBasis,
+                   Eta = tdcfV,Sigma2K = sig2_S,Sigma2 = sig2_E,
+                   muF = meanPF,sclF = sFUN,alpF = alFUN)
   
   trainY<-lapply(seq_len(length(gdata$Y)),function(w){gdata$Y[[w]][1:mi[w],]})
   
@@ -124,7 +147,7 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
                    ES2knots=c(15,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
                    LPknots=c(15,10),LPbs=c("ps","ps"),LPm=c(2,2),
                    Cov2nbasis=c(15,10),PVE=c(0.95,0.90),PSid=c(NTest,FTest),PredGS=NULL,PredGT=c(NTij,FTij),
-                   Prediction=TRUE,parCOMP=FALSE,fast_bps = FALSE)
+                   Prediction=TRUE,parCOMP=FALSE)
   
   # Next Time Point IPE
   nIPE<-mean(sapply(seq_len(length(NTest)),function(i){
@@ -146,6 +169,7 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
   qprb<-c(0.05,0.1,0.5,0.9,0.95)
   slfda1q<-cbind(do.call(rbind,quantile_slfda(fitOBJ = slfda,Time=Tg,QLevel = qprb)),rep(qprb,times=length(Tg)),iter)
   
+  
   # Out sample validation data
   OTij<-lapply(1:nTEST, function(m){sort(sample(TGrid,sample(5:9,1)))})
   OSmi<-sapply(OTij,length)
@@ -154,9 +178,9 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
   OSOTij<-lapply(1:nTEST, function(m){OTij[[m]][-OSmi[m]]})
   
   
-  vdata<-SNFData(argS = ss,TimePoint = OSTij,Sbasis = SFbasis,Tbasis = TBasis,
-                 Eta = tdcfV,Sigma2K = sig2_S,Sigma2 = sig2_E,
-                 muF = meanPF,sclF = sFUN,alpF = alFUN)$Y
+  vdata<-SNFDataBB(argS = ss,TimePoint = OSTij,STbasis = STBasis,Sbasis = SBasis,
+                   Eta = tdcfV,Sigma2K = sig2_S,Sigma2 = sig2_E,
+                   muF = meanPF,sclF = sFUN,alpF = alFUN)$Y
   
   Vdata<-lapply(1:nTEST, function(m){vdata[[m]][1:(OSmi[m]-1),]})
   
@@ -182,13 +206,11 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
   a<-gc(); rm(a)
   # Slfda0
   
-  slfda0<-skewedFDA(funDATA=trainY,funARG=ss,obsTIME=Tij,ETGrid=tp,DOP=0,KernelF=depan,
-                    CV=TRUE,Hgrid=seq(0.02,0.2,0.02),CVThresh = 0.05,PenaltyF=Qpenalty,plfGT=Tg,
+  slfda0<-skewedFDA(funDATA=trainY,funARG=ss,obsTIME=Tij,ETGrid=tp,DOP=0,KernelF=depan,CV=TRUE,Hgrid=seq(0.02,0.2,0.02),CVThresh = 0.05,PenaltyF=Qpenalty,plfGT=Tg,
                     ES2knots=c(15,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
                     LPknots=c(15,10),LPbs=c("ps","ps"),LPm=c(2,2),
-                    Cov2nbasis=c(15,10),PVE=c(0.95,0.90),PSid=c(NTest,FTest),
-                    PredGS=NULL,PredGT=c(NTij,FTij),
-                    Prediction=TRUE,parCOMP=FALSE,fast_bps = FALSE)
+                    Cov2nbasis=c(15,10),PVE=c(0.95,0.90),PSid=c(NTest,FTest),PredGS=NULL,PredGT=c(NTij,FTij),
+                    Prediction=TRUE,parCOMP=FALSE)
   
   # Next Time Point IPE
   nIPE0<-mean(sapply(seq_len(length(NTest)),function(i){
@@ -227,6 +249,7 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
   
   # Quantile estimation by the COBS
   qprb<-c(0.05,0.1,0.5,0.9,0.95)
+  
   # Quantile estimation by COBS
   TrainY<-do.call(rbind,trainY)
   OTij<-do.call(c,Tij)
@@ -282,6 +305,7 @@ sim_iter_slfda<-function(iter,n,nTEST,base_seed=100,sig2_E){
     })
     cbind(meanLFDA+TgQ,w)
   })),iter)
+  
   
   
   LPREV<-predict_lfda(lfdaOBJ = fitLFDA,gridT = c(NTij,FTij),gTID=c(NTest,FTest))  
@@ -365,127 +389,123 @@ shape_fun[[1]]<-function(s){
 shape_fun[[2]]<-function(s){
   5*(exp(2*s)/(1+exp(2*s)))-0.5*sin(2*pi*s)
 }
-  
+
 shape_fun[[3]]<-function(s){
   0
 }
 
-sig2_Eval<-c(0.183,0.600,1.290)
 fnam<-c("PNS","SN","NRM")
-flext<-c(".txt","_s2.txt","_s1.txt")
 sam_sizes<-c(100,300,500)
 Nsim<-1000
 
-for(k in 1:3){
-  for(i in 1:3){
-    alFUN<-shape_fun[[i]]
-    for(l in 1:3){
-      n<-sam_sizes[l]
-      ##### Cluster Formation ########
-      cls<-makeCluster( (mpi.universe.size()-1) , type='MPI' ) # use following two line instead when not using library(MPI)
-      # ncore<-10
-      # cls<-makemakeCluster(ncore)
-      registerDoSNOW(cls)
-      registerDoParallel(cls)
+for(i in 1:3){
+  alFUN<-shape_fun[[i]]
+  for(l in 1:3){
+    n<-sam_sizes[l]
+    ##### Cluster Formation ########
+    #cls<-parallel::makeCluster(26)
+    cls<-makeCluster( (mpi.universe.size()-1) , type='MPI' )
+    registerDoSNOW(cls)
+    registerDoParallel(cls)
+    
+    clusterEvalQ(cls,{
+      library(fda)
+      library(mgcv)
+      library(sn)
+      library(refund)
+      library(mvtnorm)
+      library(cobs)
+      library(parallel)
+      library(doParallel)
+      library(doSNOW)
+      library(foreach)
+    })
+    
+    clusterExport(cls,c("CVslfda",
+                        "fpcaLFDA",
+                        "LocLogLikSN",
+                        "predict_slfda",
+                        "PWPRED",
+                        "OutSamPWPRED",
+                        "quantile_slfda",
+                        "skewedFDA",
+                        "SNFData","alFUN","SNFDataBB","predict_lfda"))
+    
+    a<-0
+    j<-1
+    repeat{
+      b<-(a+25)
+      a1<-((j-1)*25)+1
+      b1<-(j*25)
+      print(c(a,b,a1,b1))
+      # Parallel Simulation run
+      par_res<-foreach(i=a1:b1,.errorhandling = "remove") %dopar%
+        sim_iter_slfda(iter=i,n=n,nTEST=100,base_seed=100)
       
-      clusterEvalQ(cls,{
-        library(fda)
-        library(mgcv)
-        library(sn)
-        library(refund)
-        library(mvtnorm)
-        library(cobs)
-        library(doRNG)
-      })
+      # Completed number of iterations
+      a<-a+length(par_res)
+      # update of seed number
+      j<-j+1
       
-      clusterExport(cls,c("CVslfda",
-                          "fpcaLFDA",
-                          "LocLogLikSN",
-                          "predict_slfda",
-                          "PWPRED",
-                          "OutSamPWPRED",
-                          "quantile_slfda",
-                          "skewedFDA",
-                          "SNFData","alFUN",
-                          "predict_lfda"))
-      a<-0
-      j<-1
-      repeat{
-        b<-(a+25)
-        a1<-((j-1)*25)+1
-        b1<-(j*25)
-        print(c(a,b,a1,b1))
-        # Parallel Simulation run
-        par_res<-foreach(i=a1:b1,.errorhandling = "remove") %dopar%
-          sim_iter_slfda(iter=i,n=n,nTEST=100,base_seed=100,sig2_E = sig2_Eval[k])
-        
-        # Completed number of iterations
-        a<-a+length(par_res)
-        # update of seed number
-        j<-j+1
-        
-        # Storing results
-        plf_dat<-do.call(rbind,lapply(par_res, function(w){
-          cbind(rbind(cbind(w$Mean,1),cbind(w$Scale,2),cbind(w$Alpha,3)),
-                w$OptimalBW,w$Iter)
-        }))
-        
-        # directory in the NCSU HPC where results were stored
-        dirP<-"/share/astaicu/malam3/SkewedFDA/"
-        
-        write.table(plf_dat,file = paste(dirP,"PLF_",fnam[i],"_",n,flext[k],sep=""),
-                    append = TRUE,col.names = FALSE,row.names = FALSE)
-        
-        ipe_dat<-do.call(rbind,lapply(par_res, function(w){
-          c(w$IPE,w$OptimalBW,w$Iter)
-        }))
-        
-        write.table(ipe_dat,file = paste(dirP,"IPE_",fnam[i],"_",n,flext[k],sep=""),
-                    append = TRUE,col.names = FALSE,row.names = FALSE)
-        
-        slfda1Q<-do.call(rbind,lapply(par_res, function(w){
-          w$sLFDA1qntl
-        }))
-        
-        write.table(slfda1Q,file = paste(dirP,"QsLFDA1_",fnam[i],n,flext[k],sep=""),
-                    append = TRUE,col.names = FALSE,row.names = FALSE)
-        
-        slfda0Q<-do.call(rbind,lapply(par_res, function(w){
-          w$sLFDA0qntl
-        }))
-        
-        write.table(slfda0Q,file = paste(dirP,"QsLFDA0_",fnam[i],n,flext[k],sep=""),
-                    append = TRUE,col.names = FALSE,row.names = FALSE)
-        
-        
-        lfdaQ<-do.call(rbind,lapply(par_res, function(w){
-          w$LFDAqntl
-        }))
-        
-        write.table(lfdaQ,file = paste(dirP,"QLFDA_",fnam[i],"_",n,flext[k],sep=""),
-                    append = TRUE,col.names = FALSE,row.names = FALSE)
-        
-        cobsQ<-do.call(rbind,lapply(par_res, function(w){
-          w$COBSqntl
-        }))
-        
-        write.table(cobsQ,file = paste(dirP,"QCOBS_",fnam[i],"_",n,flext[k],sep=""),
-                    append = TRUE,col.names = FALSE,row.names = FALSE)
-        
-        
-        rm(par_res)
-        
-        # Termination of repeatition
-        if(a>=Nsim)
-          break
-      }
+      # Storing results
+      plf_dat<-do.call(rbind,lapply(par_res, function(w){
+        cbind(rbind(cbind(w$Mean,1),cbind(w$Scale,2),cbind(w$Alpha,3)),
+              w$OptimalBW,w$Iter)
+      }))
       
-      # Stopping the cluster
-      stopCluster(cls)
+      # Directory at NCSU HPC for storing the results
+      dirP<-"/share/astaicu/malam3/SkewedFDA/"
+      
+      write.table(plf_dat,file = paste(dirP,"PLF_",fnam[i],"_MS_",n,".txt",sep=""),
+                  append = TRUE,col.names = FALSE,row.names = FALSE)
+      
+      ipe_dat<-do.call(rbind,lapply(par_res, function(w){
+        c(w$IPE,w$OptimalBW,w$Iter)
+      }))
+      
+      write.table(ipe_dat,file = paste(dirP,"IPE_",fnam[i],"_MS_",n,".txt",sep=""),
+                  append = TRUE,col.names = FALSE,row.names = FALSE)
+      
+      slfda1Q<-do.call(rbind,lapply(par_res, function(w){
+        w$sLFDA1qntl
+      }))
+      
+      write.table(slfda1Q,file = paste(dirP,"QsLFDA1_",fnam[i],"_MS_",n,".txt",sep=""),
+                  append = TRUE,col.names = FALSE,row.names = FALSE)
+      
+      slfda0Q<-do.call(rbind,lapply(par_res, function(w){
+        w$sLFDA0qntl
+      }))
+      
+      write.table(slfda0Q,file = paste(dirP,"QsLFDA0_",fnam[i],"_MS_",n,".txt",sep=""),
+                  append = TRUE,col.names = FALSE,row.names = FALSE)
+      
+      
+      lfdaQ<-do.call(rbind,lapply(par_res, function(w){
+        w$LFDAqntl
+      }))
+      
+      write.table(lfdaQ,file = paste(dirP,"QLFDA_",fnam[i],"_MS_",n,".txt",sep=""),
+                  append = TRUE,col.names = FALSE,row.names = FALSE)
+      
+      cobsQ<-do.call(rbind,lapply(par_res, function(w){
+        w$COBSqntl
+      }))
+      
+      write.table(cobsQ,file = paste(dirP,"QCOBS_",fnam[i],"_MS_",n,".txt",sep=""),
+                  append = TRUE,col.names = FALSE,row.names = FALSE)
+      
+      
+      rm(par_res)
+      
+      # Termination of repeatition
+      if(a>=Nsim)
+        break
     }
+    
+    # Stopping the cluster
+    stopCluster(cls)
   }
 }
 
 mpi.exit()
-
-

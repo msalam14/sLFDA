@@ -1,6 +1,6 @@
 # Vignette for codes used for the simulation study Alam and Staicu, 20xx
 
-This file illustrates how to use the codes in files
+This file illustrates how to execute the codes in files
 *utilities_generate.R*, *utilities_main.R*, and *utilities_estimate.R*
 to reproduce the simulation study.
 

@@ -313,7 +313,7 @@ E_heat<-asym_dataE %>%
 ggarrange(E_heat,unE_heat,ncol=2,widths = c(0.5,0.6))
 ggsave("DTI_RESULTS/pval_heatmap_refund_dti.png",width = 12, units="in")
 ```
-!["P-values associated with pointwise asymmetry test for DTI data with equal and unequal-sized bins. Asterisks indicate of significant skewness. A type-I error rate of $5\%$ is ensured by the Bonferroni correction for multiple testing."](DTI_RESULTS/pval_heatmap_refund_dti.png)
+<!-- !["P-values associated with pointwise asymmetry test for DTI data with equal and unequal-sized bins. Asterisks indicate of significant skewness. A type-I error rate of $5\%$ is ensured by the Bonferroni correction for multiple testing."](DTI_RESULTS/pval_heatmap_refund_dti.png) -->
 
 
 -   Next, we present the estimated mean and standard deviation functions

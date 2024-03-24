@@ -38,6 +38,10 @@ library(ggpubr)
 library(ggplot2)
 library(gridExtra)
 library(plotly)
+library(parallel)
+library(doParallel)
+library(foreach)
+library(doRNG)
 ```
 
 - Data pre-processing
@@ -123,7 +127,8 @@ slfda1<-skewedFDA(funDATA=Y,funARG=ss_cca,obsTIME=Tij,ETGrid=tp,DOP=1,KernelF=de
                   ES2knots=c(10,10),ES2bs=c("ps","ps"),ES2m=c(2,2),ES2Esp="REML",
                   LPknots=c(10,10),LPbs=c("ps","ps"),LPm=c(2,2),
                   Cov2nbasis=c(10,10),PVE=c(0.95,0.90),
-                  Prediction=TRUE,PSid=unique(dti_ID),PredGS=NULL,PredGT=Tij)
+                  Prediction=TRUE,PSid=unique(dti_ID),PredGS=NULL,PredGT=Tij,
+                  parCOMP = TRUE,n_cores = 6,fast_bps = FALSE,par_seed = 100)
 ```
 
 - Figure 1 used in the manuscript
@@ -159,7 +164,7 @@ g1<-as.data.frame(DTI$cca) %>%
   geom_text(aes(x=textP,y=0.74,label=SubText),col="antiquewhite4",size=4) +
   ggtitle("(a) Fractional Anisotropy along CCA of brain")
 
-slfda_prd<-predict_slfda(fitOBJ=slfda1,PSid=unique(ms_meta$ID),PredGS=NULL,PredGT=split(rep(1,length(unique(ms_meta$ID))),unique(ms_meta$ID)),outSAMPLE=FALSE, CovDep=FALSE,DesignMat=NULL,PredDesignMat = NULL)
+slfda_prd<-predict_slfda(fitOBJ=slfda1,PSid=unique(ms_meta$ID),PredGS=NULL,PredGT=split(rep(1,length(unique(ms_meta$ID))),unique(ms_meta$ID)), CovDep=FALSE,DesignMat=NULL,PredDesignMat = NULL)
 
 cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 clr<-cbbPalette[c(2,6)]
@@ -233,7 +238,7 @@ m3d<-plotly::plot_ly(y=round(Tg*max(ms_meta$ObsTime),2),x=ss_cca*93,z=pop_mean,t
 ```
 
 ``` r
-pop_scale<-do.call(cbind,split(exp(slfda1$EstParam$X3),slfda1$EstParam$Space))
+pop_scale<-do.call(cbind,split(exp(slfda1$EstParam$X2),slfda1$EstParam$Space))
 colnames(pop_scale)<-ss_cca*93
 rownames(pop_scale)<-round(Tg*max(ms_meta$ObsTime),2)
 s3d<-plotly::plot_ly(y=round(Tg*max(ms_meta$ObsTime),2),x=ss_cca*93,z=pop_scale,type="surface",showscale=F) %>%
@@ -290,7 +295,7 @@ subplot(m3d,s3d) %>%
 ```
 
 ![“Estimated mean and standard deviation
-surfaces”](DTI_RESULTS/mean_sd_surface.png)
+surfaces”](DTI_RESULTS/mean_sd_surface_refund_dti.png)
 
 - For shape function, we estimate the bootstrap simultaneous confidence
   interval. The bootstrap by subject is implemented for pointwise
@@ -354,9 +359,9 @@ slfda1$EstParam %>%
 ``` r
 lfda<-fpcaLFDA(Y = do.call(rbind,Y), subject.index = ms_meta$ID,
                    visit.index = do.call(c,lapply(1:length(Y), function(i){1:length(Tij[[i]])})), obsT = do.call(c,Tij),
-                   funcArg = ss_cca,numTEvalPoints = 100,fbps.knots = 10, fbps.p = 3, fbps.m = 2,
+                   funcArg = ss_cca,numTEvalPoints = 100,fbps.knots = c(15,10), fbps.p = 3, fbps.m = 2,
                    LongiModel.method='fpca.sc',
-                   mFPCA.pve = 0.95, mFPCA.knots = 10, mFPCA.p = 3, mFPCA.m = 2, 
+                   mFPCA.pve = 0.95, mFPCA.knots = 15, mFPCA.p = 3, mFPCA.m = 2, 
                    sFPCA.pve = 0.90, sFPCA.nbasis = 10)   
 ```
 
@@ -368,7 +373,7 @@ sfID<-c(16,69)
 SMPredT<-as.numeric((sapply(sfID,function(w){c(Tij[[w]][-1],max(Tij[[w]]))*max(ms_meta$ObsTime)+c(0,0,0,180/365)}))/max(ms_meta$ObsTime))
 pgT<-split(SMPredT,rep(sfID,each=4))
 
-slfda1prd<-predict_slfda(fitOBJ=slfda1,PSid=sfID,PredGS=NULL,PredGT=list(pgT[[2]],pgT[[1]]),outSAMPLE=FALSE, CovDep=FALSE,DesignMat=NULL,PredDesignMat = NULL)
+slfda1prd<-predict_slfda(fitOBJ=slfda1,PSid=sfID,PredGS=NULL,PredGT=list(pgT[[2]],pgT[[1]]),CovDep=FALSE,DesignMat=NULL,PredDesignMat = NULL)
   
 #save(slfda1osp,file="slfda1osp.RData")
 ```
@@ -376,11 +381,11 @@ slfda1prd<-predict_slfda(fitOBJ=slfda1,PSid=sfID,PredGS=NULL,PredGT=list(pgT[[2]
 - Prediction via LFDA
 
 ``` r
-LPREV<-PWPRED(lfdaOBJ = lfda,TimeOBJ = do.call(c,Tij),gridT = Tij,gTID=unique(ms_meta$ID))  
+LPREV<-predict_lfda(lfdaOBJ = lfda,gridT = Tij,gTID=unique(ms_meta$ID))  
 ```
 
 ``` r
-lfda_prd<-PWPRED(lfdaOBJ = lfda,TimeOBJ = do.call(c,Tij),gridT = list(pgT[[2]],pgT[[1]]),gTID=sfID)  
+lfda_prd<-predict_lfda(lfdaOBJ = lfda,gridT = list(pgT[[2]],pgT[[1]]),gTID=sfID)  
 ```
 
 - Estimation of the quantile trajectory

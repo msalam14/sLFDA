@@ -24,3 +24,9 @@ forcats
 lubridate
 ggpubr
 gridExtra
+foreach
+iterators
+doParallel
+rngtools
+doRNG
+plotly

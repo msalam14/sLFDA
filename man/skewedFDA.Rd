@@ -33,7 +33,11 @@ skewedFDA(
   CovDep = FALSE,
   DesignMat = NULL,
   CovDepStr = NULL,
-  PredDesignMat = NULL
+  PredDesignMat = NULL,
+  parCOMP = FALSE,
+  n_cores = 7,
+  fast_bps = FALSE,
+  par_seed = 100
 )
 }
 \arguments{
@@ -96,6 +100,14 @@ Each element can be either 1 or 2; 1 represents coefficient depends on s only, 2
 the coefficient depends on both s and t}
 
 \item{PredDesignMat}{A list of design matrices for every subject for which the prediction would be made}
+
+\item{parCOMP}{a logical scalar indicates whether computation is performed parallely or not}
+
+\item{n_cores}{number of cores to use while performing the computation in parallel}
+
+\item{fast_bps}{an indicator for using fast bivariate penalized smoother for the latent process like the LFDA.}
+
+\item{par_seed}{a scalar used as seed in ``dorng'' when parallel computing would be used; for sequential computation, skewedFDA should preceed set.seed for reproducibility}
 }
 \value{
 a list with following objects:
@@ -124,6 +136,9 @@ a list with following objects:
  \item PredGT : a list of time points where prediction is made; number of
  elements is equal to the number of subjects for them prediction is made
  \item PredSUB : subjects id for them prediction is made
+ \item CompTime: a vector of 3 elements represent computational times that
+ sLFDA took for estimating marginal population functions, copula covariance and prediction
+ \item fast_bps: an indicator whether fast computation similar to fpca.lfda is used or not 
 }
 }
 \description{

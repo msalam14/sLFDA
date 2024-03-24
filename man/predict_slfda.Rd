@@ -9,7 +9,6 @@ predict_slfda(
   PSid = NULL,
   PredGS = NULL,
   PredGT = NULL,
-  outSAMPLE = FALSE,
   nfunDATA = NULL,
   nfunARG = NULL,
   nobsTIME = NULL,
@@ -29,8 +28,6 @@ predict_slfda(
 
 \item{PredGT}{is a list of times points where prediction will be made; for in-sample prediction the length should be the length of PSid, however,
 for out-of-sample prediction the length must be equal to the length of the list nfunDATA}
-
-\item{outSAMPLE}{is a logical scalar indicates whether perdiction is for out-of-sample data or not}
 
 \item{nfunDATA}{a list containing funcational data for out-of-sample subjects}
 

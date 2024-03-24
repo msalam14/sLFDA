@@ -20,7 +20,10 @@ CVslfda(
   Thresh = 0.05,
   CovDep = FALSE,
   DesignMat = NULL,
-  CovDepStr = NULL
+  CovDepStr = NULL,
+  parCOMP = FALSE,
+  n_cores = 7,
+  par_seed = 100
 )
 }
 \arguments{
@@ -58,6 +61,12 @@ CVslfda(
 Each element can be either 1 or 2; 1 represents coefficient depends on s only, 2 means
 the coefficient depends on both s and t}
 
+\item{parCOMP}{a logical scalar indicates whether computation is performed parallely or not}
+
+\item{n_cores}{number of cores to use while performing the computation in parallel}
+
+\item{par_seed}{a scalar used as seed in ``dorng'' when parallel computing would be used; for sequential computation, skewedFDA should preceed set.seed for reproducibility}
+
 \item{CVThresh}{is a scalar represents the minimum increment for likelihood with change in bandwidth}
 }
 \value{
@@ -66,6 +75,8 @@ a list with the following items:
  \item CVresults : a data frame with two columns (bandwidth and log-likelihood)
  \item OptimalBW : chosen optimal bandwidth value
  \item fitOBJ : smooth fitted objects for population level functions at the optimal bandwidth
+ \item AvgTime : Mean time (in seconds) taken to obtain PLF for a given kernel bandwidth
+ \item TotalTime : Total time (in seconds) taken to obtain PLF in the cross-validation
 }
 }
 \description{

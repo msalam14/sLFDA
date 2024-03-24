@@ -297,6 +297,11 @@ E_heat<-asym_dataE %>%
 
 ``` r
 ggarrange(E_heat,unE_heat,ncol=2,widths = c(0.5,0.6))
+```
+
+![](README_files/figure-commonmark/unnamed-chunk-16-1.png)
+
+``` r
 ggsave("DTI_RESULTS/pval_heatmap_refund_dti.png",width = 12, units="in")
 ```
 

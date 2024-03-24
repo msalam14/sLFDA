@@ -224,6 +224,99 @@ g2<-as.data.frame(DTI$cca) %>%
 grid.arrange(g1,g2,nrow=2)
 ```
 
+- Pointwise asymmetry test with unequal and equal sized bins.
+
+```{r}
+#| eval: false
+#| warning: false
+# Unequal-sized Binning
+time=do.call(c,Tij)
+nbreaks<-quantile(time[time>0],probs = seq(0,1,0.12))
+nbreaks[c(1,length(nbreaks))]<-c(min(time[time>0])-1e-5,1)
+nbreaks<-c(0,nbreaks)
+# Asymmetry test
+set.seed(130)
+asym_test_res<-lfd_asym_test(n_breaks=nbreaks,data=do.call(rbind,Y),time=do.call(c,Tij),alpha = 0.05,boot_ss = 100)
+
+# Forming a data for constructing a heatmap
+ms_dti<-yDTI
+if(length(nbreaks)>1){
+  bin_bound<-nbreaks
+  bin_mp<-as.numeric(round((bin_bound[1:(length(bin_bound)-1)]+bin_bound[2:length(bin_bound)])/2,2))
+  bin_mp[1]<-0
+} else{
+  bin_bound<-round(seq(0,1,length.out=nbreaks+1),2)
+  bin_mp<-round(((bin_bound[1:(nbreaks)]+bin_bound[2:(nbreaks+1)])/2)*max(ms_meta$ObsTime),2)
+}
+
+asym_dataU<-data.frame(funARG=rep(seq_len(ncol(ms_dti)),each=length(bin_mp)),
+                        Bins=rep(bin_mp*max(ms_meta$ObsTime),times=ncol(ms_dti)),
+                      BinW=rep(as.numeric((bin_bound[2:length(bin_bound)]-bin_bound[1:(length(bin_bound)-1)]))*max(ms_meta$ObsTime),times=ncol(ms_dti)),
+                      Pvalue=as.numeric(asym_test_res$pValue),
+                      BinType="Unequal sized bins")
+# Heatmap of p-value
+unE_heat<-asym_dataU %>%
+  mutate(SignF=as.factor(as.numeric(Pvalue<asym_test_res$Correct_Alpha))) %>%
+  ggplot(aes(x=funARG,y=Bins,fill=Pvalue))+
+  geom_tile(aes(height=BinW)) +
+  geom_text(aes(label=ifelse(SignF==1,"*",NA))) +  
+  scale_fill_distiller(palette = "YlOrRd") +
+  scale_y_continuous(breaks=round(bin_mp*max(ms_meta$ObsTime),2),labels = round(bin_mp*max(ms_meta$ObsTime),2),sec.axis = sec_axis(trans = ~.*1,breaks = round(bin_mp*max(ms_meta$ObsTime),2),labels = asym_test_res$nBin,name = "Bin specific sample size")) +
+  ylab("") +
+  xlab("Locations along CCA") +
+  labs(fill="P-value") +
+  ggtitle("Unequal sized bins.") +
+  theme(title = element_text(size=10),legend.text = element_text(size=8))
+```
+
+```{r}
+#| eval: false
+#| warning: false
+# Equal-sized Binning and Asymmetry test together
+nbreaks<-8
+set.seed(130)
+asym_test_res<-lfd_asym_test(n_breaks=nbreaks,data=do.call(rbind,Y),time=do.call(c,Tij),alpha = 0.05,boot_ss = 100)
+
+# Forming a data for constructing a heatmap
+if(length(nbreaks)>1){
+  bin_bound<-nbreaks
+  bin_mp<-as.numeric(round((bin_bound[1:(length(bin_bound)-1)]+bin_bound[2:length(bin_bound)])/2,2))
+  bin_mp[1]<-0
+} else{
+  bin_bound<-round(seq(0,1,length.out=nbreaks+1),2)
+  bin_mp<-round(((bin_bound[1:(nbreaks)]+bin_bound[2:(nbreaks+1)])/2),2)
+}
+
+asym_dataE<-data.frame(funARG=rep(seq_len(ncol(ms_dti)),each=length(bin_mp)),
+                        Bins=rep(bin_mp*max(ms_meta$ObsTime),times=ncol(ms_dti)),
+                      BinW=rep(as.numeric((bin_bound[2:length(bin_bound)]-bin_bound[1:(length(bin_bound)-1)]))*max(ms_meta$ObsTime),times=ncol(ms_dti)),
+                      Pvalue=as.numeric(asym_test_res$pValue),
+                      BinType="Equal sized bins")
+# Heatmap of p-value with equal-sized bins
+E_heat<-asym_dataE %>%
+  mutate(SignF=as.factor(as.numeric(Pvalue<asym_test_res$Correct_Alpha))) %>%
+  ggplot(aes(x=funARG,y=Bins,fill=Pvalue))+
+  geom_tile(aes(height=BinW)) +
+  geom_text(aes(label=ifelse(SignF==1,"*",NA))) +  
+  scale_fill_distiller(palette = "YlOrRd") +
+  scale_y_continuous(breaks=round(bin_mp*max(ms_meta$ObsTime),2),labels = round(bin_mp*max(ms_meta$ObsTime),2),sec.axis = sec_axis(trans = ~.*1,breaks = round(bin_mp*max(ms_meta$ObsTime),2),labels = asym_test_res$nBin)) +
+  ylab("Visit time (in years)") +
+  xlab("Locations along CCA") +
+  labs(fill="P-value") +
+  ggtitle("Equal sized bins.") +
+  theme(title = element_text(size=10),legend.text = element_text(size=8),legend.position = "")
+```
+
+```{r}
+#| eval: false
+#| warning: false
+#| results: hide
+ggarrange(E_heat,unE_heat,ncol=2,widths = c(0.5,0.6))
+ggsave("DTI_RESULTS/pval_heatmap_refund_dti.png",width = 12, units="in")
+```
+!["P-values associated with pointwise asymmetry test for DTI data with equal and unequal-sized bins. Asterisks indicate of significant skewness. A type-I error rate of $5\%$ is ensured by the Bonferroni correction for multiple testing."](DTI_RESULTS/pval_heatmap_refund_dti.png)
+
+
 -   Next, we present the estimated mean and standard deviation functions
 
 ```{r}
